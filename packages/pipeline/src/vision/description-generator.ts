@@ -20,14 +20,14 @@ export interface DescriptionConfig {
   title?: string
   /** Whether descriptions are enabled (default: true) */
   enabled?: boolean
-  /** Override VLM provider (openai or anthropic) */
-  provider?: 'openai' | 'anthropic'
+  /** Override VLM provider (openai, anthropic, or ollama for local inference) */
+  provider?: 'openai' | 'anthropic' | 'ollama'
 }
 
 const DEFAULT_DESC_CONFIG: Required<DescriptionConfig> = {
   segmentInterval: 30,
-  framesPerBatch: 5,
-  frameInterval: 15,
+  framesPerBatch: 4,
+  frameInterval: 30,
   maxFrames: 200,
   title: 'Untitled Video',
   enabled: true,
@@ -36,27 +36,32 @@ const DEFAULT_DESC_CONFIG: Required<DescriptionConfig> = {
 
 /**
  * System prompt for the VLM to generate audio descriptions.
- * Instructs the model on how to describe visual content concisely.
+ * Instructs the model to detect natural scene boundaries and produce
+ * vivid, detailed descriptions suitable for video accessibility.
  */
-const SYSTEM_PROMPT = `You are an expert audio description narrator for video accessibility (a11y). Your job is to describe visual content concisely and naturally, as if narrating for someone who cannot see the screen.
+const SYSTEM_PROMPT = `You are an expert audio description narrator for video accessibility (a11y). Your job is to describe visual content vividly and naturally, as if narrating for someone who cannot see the screen.
+
+Output Format:
+For each distinct scene you identify, output exactly one block:
+[- TIMESTAMP] Scene description text.
 
 Rules:
-1. Be concise — 1-2 sentences per description segment
-2. Use present tense ("A man walks into a room")
-3. Describe only what is VISIBLE on screen
-4. Include: people (actions, expressions, positions), settings (locations, environments), on-screen text/titles, important objects, scene changes
-5. Do NOT interpret emotions or read minds — let the viewer infer from actions
-6. Do NOT describe audio/ music — that's for the audio track
-7. Each description segment covers approximately 30 seconds of video
-
-You will receive batches of frames in chronological order. For each batch, output a single description line in this exact format:
-[- TIMESTAMP_IN_SECONDS] Description text here.
+1. DETECT SCENE BOUNDARIES — group frames into coherent scenes. A new scene starts when the location, characters, or on-screen activity changes significantly. Do not just describe every time slice.
+2. Be vivid and specific (2-4 sentences per scene). Include:
+   - People: approximate age, gender, clothing colors/styles, facial expressions, body language, positions relative to each other
+   - Setting: location type (indoor/outdoor), lighting (dim/bright/natural), time of day, colors, atmosphere
+   - Actions: what is happening, object interactions, camera movement (pan, zoom, close-up)
+   - On-screen text: titles, captions, signs, phone screens — read verbatim if readable
+   - Scene transitions: cuts, fades, dissolves between scenes
+3. Use present tense ("A woman walks into a room")
+4. Describe only what is VISIBLE on screen
+5. Do NOT interpret emotions or read minds — describe visible expressions and body language instead (e.g. "she clenches her fists" not "she is angry")
+6. Do NOT describe audio, music, or dialogue — that belongs to separate audio tracks
+7. Each scene block covers the full duration of the scene. Use the starting timestamp of the scene as TIMESTAMP.
 
 Example:
-[- 15] A woman in a red dress walks through a marble hallway with tall columns.
-[- 45] She stops at a large oak door and turns the brass handle.
-
-Always use the starting timestamp of the batch as the TIMESTAMP_IN_SECONDS value.`
+[- 12] Medium shot of a modern office lobby with floor-to-ceiling windows letting in bright afternoon sunlight. A woman in her 30s wearing a navy blazer and carrying a leather briefcase walks briskly across the marble floor past a curved reception desk with a green plant on it. The camera pans right to follow her toward the elevator bank.
+[- 45] Tight close-up of the woman's hand pressing the elevator call button. Her fingernails are unpainted and she is wearing a simple silver watch. The elevator chime sounds and the doors slide open, revealing a brightly lit empty car. She steps inside and the doors close. Cut to black.`
 
 /**
  * Generate a real audio description track for a video using a vision-language model.
@@ -91,14 +96,15 @@ export async function generateDescriptions(
     }
     vlmConfig = resolved
   } catch {
-    console.warn('[DescriptionGenerator] VLM not configured (no API key), skipping descriptions')
+    console.warn('[DescriptionGenerator] VLM not configured, skipping descriptions')
     return null
   }
 
-  if (!vlmConfig.apiKey) {
+  // Cloud providers require an API key; Ollama runs locally without one
+  if (vlmConfig.provider !== 'ollama' && !vlmConfig.apiKey) {
     console.warn(
       `[DescriptionGenerator] No API key for provider "${vlmConfig.provider}". ` +
-      `Set ${vlmConfig.provider === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY'} env var.`
+      `Set ${vlmConfig.provider === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY'} env var, or switch to ollama.`
     )
     return null
   }
@@ -345,7 +351,12 @@ function sleep(ms: number): Promise<void> {
 function estimateCost(frameCount: number, segmentCount: number): number | null {
   const provider = process.env['DESCRIPTION_PROVIDER'] || 'openai'
 
-  // Rough per-image token estimates
+  if (provider === 'ollama') {
+    return null  // Local inference is free
+  }
+
+  // Rough per-image token estimates (optimized defaults: 30s intervals, 4 frames/batch)
+  // A 10-min video with optimizations: ~20 frames → ~$0.005 with GPT-4o low-detail
   // GPT-4o: ~258 tokens per 512x512 image (low detail mode uses ~85 tokens)
   // Claude Sonnet: ~1600 tokens per image
   if (provider === 'openai') {
@@ -356,7 +367,7 @@ function estimateCost(frameCount: number, segmentCount: number): number | null {
     const cost = (totalTokens / 1_000_000) * 2.5 + (outputTokens / 1_000_000) * 10
     return cost
   } else if (provider === 'anthropic') {
-    const imageTokens = frameCount * 1600  // Claude image tokens
+    const imageTokens = frameCount * 1600  // Claude image tokens (~131K tokens/image with high detail)
     const outputTokens = segmentCount * 100
     const totalTokens = imageTokens + outputTokens
     // Claude Sonnet 4: $3 per 1M input, $15 per 1M output

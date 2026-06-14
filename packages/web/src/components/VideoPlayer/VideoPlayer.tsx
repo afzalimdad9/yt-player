@@ -279,7 +279,7 @@ export function VideoPlayer({ session, videoTitle, onTimeUpdate }: VideoPlayerPr
         <div className="absolute inset-0 flex items-center justify-center bg-black/30">
           <div className="flex flex-col items-center gap-2">
             <div className="w-10 h-10 border-4 border-yt-red border-t-transparent rounded-full animate-spin" />
-            <span className="text-white text-xs">Loading</span>
+            <span className="text-yt-white text-xs">Loading</span>
           </div>
         </div>
       )}
@@ -288,7 +288,7 @@ export function VideoPlayer({ session, videoTitle, onTimeUpdate }: VideoPlayerPr
       {playerState === 'error' && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/60">
           <div className="text-center">
-            <p className="text-white text-sm mb-2">Unable to play this video</p>
+            <p className="text-yt-white text-sm mb-2">Unable to play this video</p>
             <button
               onClick={(e) => {
                 e.stopPropagation()
@@ -306,7 +306,7 @@ export function VideoPlayer({ session, videoTitle, onTimeUpdate }: VideoPlayerPr
       <div className={`absolute top-0 left-0 right-0 bg-gradient-to-b from-black/60 to-transparent p-4 transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-white text-sm font-medium truncate">{videoTitle}</h2>
+        <h2 className="text-yt-white text-sm font-medium truncate">{videoTitle}</h2>
       </div>
 
       {/* Controls */}
@@ -317,7 +317,7 @@ export function VideoPlayer({ session, videoTitle, onTimeUpdate }: VideoPlayerPr
         {playerState === 'paused' && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-14 h-14 bg-yt-red/90 rounded-full flex items-center justify-center hover:bg-yt-red transition-colors">
-              <svg className="w-6 h-6 text-white ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+              <svg className="w-6 h-6 text-yt-white ml-0.5" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M8 5v14l11-7z" />
               </svg>
             </div>

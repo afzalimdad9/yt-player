@@ -99,7 +99,7 @@ export function Controls({
       </div>
 
       {/* Time display */}
-      <span className="text-xs text-white/80 whitespace-nowrap select-none">
+      <span className="text-xs text-yt-white/80 whitespace-nowrap select-none">
         {formatTime(currentTime)} / {formatTime(duration)}
       </span>
 
@@ -117,7 +117,7 @@ export function Controls({
         </button>
 
         {showSettings && (
-          <div className="absolute bottom-full right-0 mb-2 bg-yt-dark border border-[#3d3d3d] rounded-lg p-2 min-w-[180px] animate-slide-up shadow-xl">
+          <div className="absolute bottom-full right-0 mb-2 bg-yt-dark border border-yt-gray rounded-lg p-2 min-w-[180px] animate-slide-up shadow-xl">
             <p className="text-xs text-yt-light/60 uppercase tracking-wider px-2 py-1">Playback Speed</p>
             <div className="grid grid-cols-2 gap-1 mt-1">
               {PLAYBACK_RATES.map((rate) => (
@@ -129,8 +129,8 @@ export function Controls({
                   }}
                   className={`text-xs px-2 py-1.5 rounded transition-colors ${
                     playbackRate === rate
-                      ? 'bg-yt-red text-white'
-                      : 'text-yt-light hover:bg-white/10'
+                      ? 'bg-yt-red text-yt-white'
+                      : 'text-yt-light hover:bg-yt-dark'
                   }`}
                 >
                   {rate}x

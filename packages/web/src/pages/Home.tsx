@@ -56,7 +56,7 @@ export function Home({ onVideoClick }: HomeProps) {
       PENDING: 'bg-gray-600',
     }
     return (
-      <span className={`text-xs px-2 py-0.5 rounded ${colors[status] || 'bg-gray-600'} text-white`}>
+      <span className={`text-xs px-2 py-0.5 rounded ${colors[status] || 'bg-gray-600'} text-yt-white`}>
         {status}
       </span>
     )
@@ -132,7 +132,7 @@ export function Home({ onVideoClick }: HomeProps) {
               )}
               {/* Duration overlay */}
               {video.duration > 0 && (
-                <span className="absolute bottom-1 right-1 bg-black/80 text-white text-xs px-1 rounded">
+                <span className="absolute bottom-1 right-1 bg-black/80 text-yt-white text-xs px-1 rounded">
                   {formatDuration(video.duration)}
                 </span>
               )}
@@ -140,8 +140,8 @@ export function Home({ onVideoClick }: HomeProps) {
               {video.status !== 'READY' && video.status !== 'FAILED' && (
                 <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                   <div className="flex flex-col items-center gap-1">
-                    <Loader2 className="w-6 h-6 animate-spin text-white" />
-                    <span className="text-white text-xs">{video.status}</span>
+                    <Loader2 className="w-6 h-6 animate-spin text-yt-white" />
+                    <span className="text-yt-white text-xs">{video.status}</span>
                   </div>
                 </div>
               )}
@@ -149,7 +149,7 @@ export function Home({ onVideoClick }: HomeProps) {
 
             {/* Info */}
             <div className="p-3">
-              <h3 className="text-sm font-medium text-white line-clamp-2 mb-1">
+              <h3 className="text-sm font-medium text-yt-white line-clamp-2 mb-1">
                 {video.title}
               </h3>
               <div className="flex items-center gap-2 text-xs text-yt-light">

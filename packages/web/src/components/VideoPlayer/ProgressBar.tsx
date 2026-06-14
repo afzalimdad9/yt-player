@@ -72,7 +72,7 @@ export function ProgressBar({ currentTime, duration, buffered, onSeek }: Progres
       {/* Preview tooltip */}
       {previewTime !== null && duration > 0 && (
         <div
-          className="absolute -top-8 transform -translate-x-1/2 bg-black/90 text-white text-xs px-2 py-0.5 rounded pointer-events-none"
+          className="absolute -top-8 transform -translate-x-1/2 bg-black/90 text-yt-white text-xs px-2 py-0.5 rounded pointer-events-none"
           style={{ left: `${previewX}px` }}
         >
           {formatTime(previewTime)}

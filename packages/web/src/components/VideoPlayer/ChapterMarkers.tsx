@@ -32,18 +32,18 @@ export function ChapterMarkers({ chapters, currentTime, onSeek }: ChapterMarkers
             className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors ${
               isActive
                 ? 'bg-yt-red/10 text-yt-red'
-                : 'hover:bg-yt-dark text-yt-light hover:text-white'
+                : 'hover:bg-yt-dark text-yt-light hover:text-yt-white'
             }`}
           >
             {/* Timeline indicator */}
             <div className="relative flex items-center">
               <div className={`w-2 h-2 rounded-full ${
-                isActive ? 'bg-yt-red' : 'bg-[#3d3d3d]'
+                isActive ? 'bg-yt-red' : 'bg-yt-gray'
               }`} />
               {/* Connector line */}
               {i < chapters.length - 1 && (
                 <div className={`absolute top-3 left-1 w-0.5 h-6 -translate-x-1/2 ${
-                  i < activeIndex ? 'bg-yt-red/50' : 'bg-[#3d3d3d]'
+                  i < activeIndex ? 'bg-yt-red/50' : 'bg-yt-gray'
                 }`} />
               )}
             </div>

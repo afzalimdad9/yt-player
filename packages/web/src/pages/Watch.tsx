@@ -80,7 +80,7 @@ export function Watch({ videoId, onBack }: WatchProps) {
           <div className="flex gap-3">
             <button
               onClick={onBack}
-              className="px-4 py-2 border border-[#3d3d3d] rounded-full text-sm hover:bg-yt-dark transition-colors"
+              className="px-4 py-2 border border-yt-gray rounded-full text-sm hover:bg-yt-dark transition-colors"
             >
               Go Back
             </button>
@@ -106,7 +106,7 @@ export function Watch({ videoId, onBack }: WatchProps) {
       {/* Back button */}
       <button
         onClick={onBack}
-        className="flex items-center gap-1 text-yt-light hover:text-white mb-3 transition-colors text-sm"
+        className="flex items-center gap-1 text-yt-light hover:text-yt-white mb-3 transition-colors text-sm"
       >
         <ArrowLeft className="w-4 h-4" />
         Back to Home
@@ -126,7 +126,7 @@ export function Watch({ videoId, onBack }: WatchProps) {
 
           {/* Video Info */}
           <div className="mt-4">
-            <h1 className="text-xl font-semibold text-white">{video.title}</h1>
+            <h1 className="text-xl font-semibold text-yt-white">{video.title}</h1>
 
             <div className="flex items-center gap-3 mt-2 text-sm text-yt-light">
               <div className="flex items-center gap-1">

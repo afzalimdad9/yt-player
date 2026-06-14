@@ -1,5 +1,4 @@
 /** @type {import('tailwindcss').Config} */
-/** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: 'class',
   content: [
@@ -10,11 +9,11 @@ module.exports = {
     extend: {
       colors: {
         yt: {
-          black: '#0f0f0f',
-          dark: '#212121',
-          gray: '#3d3d3d',
-          light: '#aaaaaa',
-          white: '#f1f1f1',
+          black: 'var(--yt-black)',
+          dark: 'var(--yt-dark)',
+          gray: 'var(--yt-gray)',
+          light: 'var(--yt-light)',
+          white: 'var(--yt-white)',
           red: '#ff0000',
         },
       },

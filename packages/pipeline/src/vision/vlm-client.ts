@@ -1,25 +1,32 @@
 /**
  * Vision-Language Model (VLM) Client
  *
- * Supports two backends:
+ * Supports three backends:
  * - OpenAI GPT-4o (or compatible models)
  * - Anthropic Claude (Opus or Sonnet)
+ * - Ollama (local inference via Ollama server, e.g. LLaVA, llava-llama3)
  *
  * Configure via environment variables:
  *   DESCRIPTION_PROVIDER=openai    (default: openai)
  *   OPENAI_API_KEY=sk-...
  *   ANTHROPIC_API_KEY=sk-ant-...
- *   VLM_MODEL=gpt-4o              (default: gpt-4o for openai, claude-sonnet-4-20250514 for anthropic)
+ *   VLM_MODEL=gpt-4o              (default: gpt-4o / claude-sonnet-4-20250514 / llava)
  *   VLM_MAX_TOKENS=1024           (default: 1024)
+ *
+ *   # Ollama-specific:
+ *   OLLAMA_BASE_URL=http://localhost:11434  (default)
+ *   OLLAMA_MODEL=llava                      (default: llava)
  */
 
-export type VlmProvider = 'openai' | 'anthropic'
+export type VlmProvider = 'openai' | 'anthropic' | 'ollama'
 
 export interface VlmConfig {
   provider: VlmProvider
   apiKey: string
   model: string
   maxTokens: number
+  /** Ollama server base URL (only used when provider is 'ollama') */
+  ollamaBaseUrl?: string
 }
 
 export interface VlmMessage {
@@ -45,14 +52,20 @@ export interface VlmResponse {
  */
 export function resolveVlmConfig(): VlmConfig {
   const provider = (process.env['DESCRIPTION_PROVIDER'] || 'openai') as VlmProvider
-  const apiKey =
-    provider === 'openai'
-      ? process.env['OPENAI_API_KEY'] || ''
-      : process.env['ANTHROPIC_API_KEY'] || ''
+
+  // API key is only needed for cloud providers
+  let apiKey = ''
+  if (provider === 'openai') {
+    apiKey = process.env['OPENAI_API_KEY'] || ''
+  } else if (provider === 'anthropic') {
+    apiKey = process.env['ANTHROPIC_API_KEY'] || ''
+  }
+  // ollama doesn't need an API key
 
   const defaultModels: Record<VlmProvider, string> = {
     openai: process.env['OPENAI_MODEL'] || 'gpt-4o',
     anthropic: process.env['ANTHROPIC_MODEL'] || 'claude-sonnet-4-20250514',
+    ollama: process.env['OLLAMA_MODEL'] || 'llava',
   }
 
   return {
@@ -60,6 +73,7 @@ export function resolveVlmConfig(): VlmConfig {
     apiKey,
     model: process.env['VLM_MODEL'] || defaultModels[provider],
     maxTokens: parseInt(process.env['VLM_MAX_TOKENS'] || '1024', 10),
+    ollamaBaseUrl: process.env['OLLAMA_BASE_URL'] || 'http://localhost:11434',
   }
 }
 
@@ -72,7 +86,8 @@ export async function vlmChat(
 ): Promise<VlmResponse> {
   const cfg = { ...resolveVlmConfig(), ...config }
 
-  if (!cfg.apiKey) {
+  // Cloud providers require an API key; Ollama runs locally
+  if (cfg.provider !== 'ollama' && !cfg.apiKey) {
     throw new Error(
       `VLM API key not configured. Set ${cfg.provider === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY'} environment variable.`
     )
@@ -83,6 +98,8 @@ export async function vlmChat(
       return callOpenAi(messages, cfg)
     case 'anthropic':
       return callAnthropic(messages, cfg)
+    case 'ollama':
+      return callOllama(messages, cfg)
     default:
       throw new Error(`Unknown VLM provider: ${cfg.provider}`)
   }
@@ -251,6 +268,100 @@ function convertAnthropicPart(part: VlmContentPart): AnthropicContentBlock {
       type: 'base64',
       media_type: part.mediaType,
       data: part.base64,
+    },
+  }
+}
+
+// =========================================================================
+// Ollama API
+// =========================================================================
+
+interface OllamaMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+  images?: string[]
+}
+
+interface OllamaResponse {
+  model: string
+  message: {
+    role: string
+    content: string
+  }
+  done: boolean
+  total_duration?: number
+  prompt_eval_count?: number
+  eval_count?: number
+}
+
+/**
+ * Call a local Ollama server for vision-based descriptions.
+ * No API key needed — runs entirely on local hardware.
+ *
+ * Uses the /api/chat endpoint with base64-encoded images.
+ * See: https://github.com/ollama/ollama/blob/main/docs/api.md
+ */
+async function callOllama(
+  messages: VlmMessage[],
+  config: VlmConfig
+): Promise<VlmResponse> {
+  const baseUrl = config.ollamaBaseUrl || 'http://localhost:11434'
+
+  // Convert to Ollama message format
+  const ollamaMessages: OllamaMessage[] = messages.map(msg => {
+    if (typeof msg.content === 'string') {
+      return { role: msg.role, content: msg.content }
+    }
+
+    // For messages with content parts, separate text and images
+    const textParts: string[] = []
+    const images: string[] = []
+
+    for (const part of msg.content) {
+      if (part.type === 'text') {
+        textParts.push(part.text)
+      } else {
+        // Ollama images are raw base64 (no data: URI prefix)
+        images.push(part.base64)
+      }
+    }
+
+    return {
+      role: msg.role,
+      content: textParts.join('\n'),
+      images: images.length > 0 ? images : undefined,
+    }
+  })
+
+  const response = await fetch(`${baseUrl}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: config.model,
+      messages: ollamaMessages,
+      stream: false,
+      options: {
+        num_predict: config.maxTokens,
+      },
+    }),
+  })
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '')
+    const hint = response.status === 404
+      ? `Model "${config.model}" not found. Pull it first: ollama pull ${config.model}`
+      : `Ollama server error (${response.status})`
+    throw new Error(`${hint}: ${body.slice(300)}`)
+  }
+
+  const data = (await response.json()) as OllamaResponse
+
+  return {
+    content: data.message?.content || '',
+    model: data.model,
+    usage: {
+      inputTokens: data.prompt_eval_count || 0,
+      outputTokens: data.eval_count || 0,
     },
   }
 }

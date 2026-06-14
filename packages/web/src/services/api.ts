@@ -140,7 +140,7 @@ class ApiService {
   /** Upload a video file directly. Returns promise + abort function. */
   uploadVideo(
     file: File,
-    onProgress?: (percent: number) => void,
+    onProgress?: (progress: { percent: number; loaded: number; total: number }) => void,
     wordTimestamps?: boolean
   ): {
     promise: Promise<{ success: boolean; videoId: string; status: string }>
@@ -159,7 +159,11 @@ class ApiService {
 
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable && onProgress) {
-          onProgress(Math.round((e.loaded / e.total) * 100))
+          onProgress({
+            percent: Math.round((e.loaded / e.total) * 100),
+            loaded: e.loaded,
+            total: e.total,
+          })
         }
       }
 

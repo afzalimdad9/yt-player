@@ -5,7 +5,45 @@
 @tailwind utilities;
 
 @layer base {
+  /* ===== Light mode (default) ===== */
   :root {
+    --yt-black: #ffffff;
+    --yt-dark: #f1f1f1;
+    --yt-gray: #e0e0e0;
+    --yt-light: #606060;
+    --yt-white: #0f0f0f;
+
+    --background: 0 0% 100%;
+    --foreground: 0 0% 6%;
+    --card: 0 0% 95%;
+    --card-foreground: 0 0% 6%;
+    --popover: 0 0% 95%;
+    --popover-foreground: 0 0% 6%;
+    --primary: 0 100% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 90%;
+    --secondary-foreground: 0 0% 6%;
+    --muted: 0 0% 90%;
+    --muted-foreground: 0 0% 45%;
+    --accent: 0 0% 90%;
+    --accent-foreground: 0 0% 6%;
+    --destructive: 0 100% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 86%;
+    --input: 0 0% 86%;
+    --ring: 0 100% 50%;
+    --radius: 0.5rem;
+    --color-border: 0 0% 86%;
+  }
+
+  /* ===== Dark mode ===== */
+  .dark {
+    --yt-black: #0f0f0f;
+    --yt-dark: #212121;
+    --yt-gray: #3d3d3d;
+    --yt-light: #aaaaaa;
+    --yt-white: #f1f1f1;
+
     --background: 0 0% 6%;
     --foreground: 0 0% 95%;
     --card: 0 0% 9%;
@@ -29,14 +67,70 @@
     --color-border: 0 0% 18%;
   }
 
-  * {
-    @apply border-[#3d3d3d];
+  *,
+  *::before,
+  *::after {
+    border-color: var(--yt-gray);
+  }
+
+  /* Smooth theme transitions — only on changed properties, respect reduced motion */
+  @media (prefers-reduced-motion: no-preference) {
+    *,
+    *::before,
+    *::after {
+      transition: background-color 0.25s ease,
+                  border-color 0.25s ease,
+                  color 0.25s ease;
+    }
   }
 
   body {
     @apply bg-yt-black text-yt-white font-sans antialiased;
     margin: 0;
     min-height: 100vh;
+    /* Prevent iOS Safari from auto-adjusting font sizes */
+    -webkit-text-size-adjust: 100%;
+    /* Standardize mobile tap highlight */
+    -webkit-tap-highlight-color: rgba(255, 0, 0, 0.15);
+    /* Firefox scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: var(--yt-gray) var(--yt-black);
+  }
+
+  /* ===== Text selection ===== */
+  ::selection {
+    background-color: rgba(255, 0, 0, 0.3);
+    color: inherit;
+  }
+
+  /* ===== Placeholder styling ===== */
+  ::placeholder {
+    color: var(--yt-light);
+    opacity: 0.6;
+  }
+
+  /* ===== Autofill override (prevent yellow background) ===== */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px var(--yt-dark) inset;
+    -webkit-text-fill-color: var(--yt-white);
+    caret-color: var(--yt-white);
+    transition: background-color 5000s ease-in-out 0s;
+  }
+
+  /* ===== Keyboard focus ring (focus-visible only) ===== */
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px #ff0000, 0 0 0 4px rgba(255, 0, 0, 0.15);
+  }
+
+  /* ===== Search input cancel button (WebKit) ===== */
+  input[type="search"]::-webkit-search-decoration,
+  input[type="search"]::-webkit-search-cancel-button,
+  input[type="search"]::-webkit-search-results-button,
+  input[type="search"]::-webkit-search-results-decoration {
+    -webkit-appearance: none;
   }
 
   ::-webkit-scrollbar {
@@ -45,16 +139,16 @@
   }
 
   ::-webkit-scrollbar-track {
-    background: #0f0f0f;
+    background: var(--yt-black);
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #3d3d3d;
+    background: var(--yt-gray);
     border-radius: 4px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #555;
+    background: var(--yt-light);
   }
 }
 
@@ -73,6 +167,6 @@
   }
 
   .yt-card {
-    @apply bg-yt-dark rounded-lg overflow-hidden hover:bg-[#2a2a2a] transition-colors duration-200 cursor-pointer;
+    @apply bg-yt-dark rounded-lg overflow-hidden hover:bg-yt-dark/70 transition-colors duration-200 cursor-pointer;
   }
 }
