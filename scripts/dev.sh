@@ -28,6 +28,17 @@ check_command pnpm
 check_command docker
 check_command ffmpeg
 check_command yt-dlp
+
+# Check Whisper (whisper.cpp or Python openai-whisper)
+if command -v whisper-cli &>/dev/null; then
+  echo -e "  ${GREEN}✓${NC} whisper-cli"
+elif python3 -c "import whisper" 2>/dev/null; then
+  echo -e "  ${GREEN}✓${NC} openai-whisper (Python)"
+else
+  echo -e "  ${YELLOW}⚠${NC} Whisper not found. Captions will use placeholder tracks."
+  echo -e "  ${YELLOW}  Run ./scripts/setup-whisper.sh to install whisper.cpp${NC}"
+fi
+
 echo -e "${GREEN}✓ All prerequisites found${NC}"
 echo ""
 

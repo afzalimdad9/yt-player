@@ -137,13 +137,17 @@ class ApiService {
     return this.request<{ data: StreamingSession }>(`/stream/${id}`)
   }
 
-  /** Upload a video file directly */
-  async uploadVideo(file: File, onProgress?: (percent: number) => void) {
-    return new Promise<{ success: boolean; videoId: string; status: string }>((resolve, reject) => {
+  /** Upload a video file directly. Returns promise + abort function. */
+  uploadVideo(file: File, onProgress?: (percent: number) => void): {
+    promise: Promise<{ success: boolean; videoId: string; status: string }>
+    abort: () => void
+  } {
+    const xhr = new XMLHttpRequest()
+
+    const promise = new Promise<{ success: boolean; videoId: string; status: string }>((resolve, reject) => {
       const formData = new FormData()
       formData.append('file', file)
 
-      const xhr = new XMLHttpRequest()
       xhr.open('POST', `${this.baseUrl}/videos/upload`)
 
       xhr.upload.onprogress = (e) => {
@@ -166,8 +170,15 @@ class ApiService {
       }
 
       xhr.onerror = () => reject(new Error('Network error during upload'))
+      xhr.onabort = () => reject(new DOMException('Upload cancelled', 'AbortError'))
+
       xhr.send(formData)
     })
+
+    return {
+      promise,
+      abort: () => xhr.abort(),
+    }
   }
 
   /** Delete a video */

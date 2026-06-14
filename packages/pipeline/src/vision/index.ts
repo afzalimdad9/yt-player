@@ -1,0 +1,6 @@
+export { generateDescriptions } from './description-generator.js'
+export type { DescriptionConfig } from './description-generator.js'
+export { extractFrames, loadFrameBase64, loadFramesBase64 } from './frame-extractor.js'
+export type { ExtractedFrame, FrameExtractionConfig } from './frame-extractor.js'
+export { vlmChat, resolveVlmConfig } from './vlm-client.js'
+export type { VlmConfig, VlmMessage, VlmResponse, VlmContentPart, VlmProvider } from './vlm-client.js'

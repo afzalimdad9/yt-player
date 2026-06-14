@@ -10,6 +10,7 @@ import { downloadVideo } from './downloader.js'
 import { transcodeVideo } from './transcoder.js'
 import { generateCaptions } from './whisper/index.js'
 import { detectChapters } from './chapter-detector.js'
+import { generateDescriptions } from './vision/index.js'
 import { generateThumbnailSprite } from './thumbnail-sprite.js'
 import { uploadStreamingAssets } from './manifest-generator.js'
 import { rm } from 'node:fs/promises'
@@ -23,14 +24,16 @@ export interface PipelineConfig {
  * Full pipeline to process a video from URL to streaming-ready assets.
  *
  * Steps:
- * 1. Download video from URL
- * 2. Analyze and create database record
- * 3. Transcode into multiple quality renditions (HLS + DASH)
- * 4. Generate captions/subtitles via Whisper
- * 5. Detect chapters/scenes
- * 6. Generate thumbnail sprite sheet
- * 7. Upload all assets to S3/MinIO
- * 8. Update database with final metadata
+ * 1.  Download video from URL
+ * 2.  Analyze and create database record
+ * 3.  Transcode into multiple quality renditions (HLS + DASH)
+ * 4.  Generate captions/subtitles via Whisper
+ * 5.  Generate audio descriptions via AI vision (GPT-4o/Claude)
+ * 6.  Detect chapters/scenes
+ * 7.  Generate thumbnail sprite sheet
+ * 8.  Upload all assets to S3/MinIO
+ * 9.  Update database with final metadata
+ * 10. Cleanup temp processing files
  */
 export async function runPipeline(
   videoId: string,
@@ -65,33 +68,39 @@ export async function runPipeline(
     console.log(`[Pipeline] Generating captions for ${videoId}`)
     const captionResults = await generateCaptions(audioPath, videoId)
 
-    // ===== Step 4: Chapters =====
+    // ===== Step 4: Audio Descriptions (AI vision) =====
+    console.log(`[Pipeline] Generating audio descriptions for ${videoId}`)
+    const descriptionResult = await generateDescriptions(videoPath, videoId, {
+      title: metadata.title,
+    })
+
+    // ===== Step 5: Chapters =====
     console.log(`[Pipeline] Detecting chapters for ${videoId}`)
     const chapterResult = await detectChapters(videoPath, videoId)
 
-    // ===== Step 5: Thumbnail sprites =====
+    // ===== Step 6: Thumbnail sprites =====
     console.log(`[Pipeline] Generating thumbnail sprites for ${videoId}`)
     const spriteResult = await generateThumbnailSprite(videoPath, videoId)
 
-    // ===== Step 6: Upload to storage =====
+    // ===== Step 7: Upload to storage =====
     console.log(`[Pipeline] Uploading assets for ${videoId}`)
     const manifests = await uploadStreamingAssets(storage, videoId, transcodeResult)
 
-    // Upload thumbnail sprite
-    await uploadVttTracks(storage, videoId, captionResults, chapterResult, spriteResult)
+    // Upload thumbnail sprite and VTT tracks
+    await uploadVttTracks(storage, videoId, captionResults, descriptionResult, chapterResult, spriteResult)
 
     // Upload main thumbnail (first frame)
     await uploadMainThumbnail(storage, videoId, videoPath)
 
-    // ===== Step 7: Update database with all results =====
+    // ===== Step 8: Update database with all results =====
     console.log(`[Pipeline] Updating database for ${videoId}`)
-    await saveResultsToDatabase(storage, videoId, transcodeResult, captionResults, chapterResult, spriteResult, manifests)
+    await saveResultsToDatabase(storage, videoId, transcodeResult, captionResults, descriptionResult, chapterResult, spriteResult, manifests)
 
-    // ===== Step 8: Mark complete =====
+    // ===== Step 9: Mark complete =====
     await updateStatus(videoId, VideoStatus.READY)
     console.log(`[Pipeline] Complete for ${videoId}`)
 
-    // ===== Step 9: Cleanup temp processing files =====
+    // ===== Step 10: Cleanup temp processing files =====
     try {
       const tempDir = path.join(process.env['TEMP_DIR'] || './tmp', videoId)
       await rm(tempDir, { recursive: true, force: true })
@@ -149,17 +158,23 @@ async function uploadVttTracks(
   storage: StorageClient,
   videoId: string,
   captions: Awaited<ReturnType<typeof generateCaptions>>,
+  description: Awaited<ReturnType<typeof generateDescriptions>>,
   chapters: Awaited<ReturnType<typeof detectChapters>>,
   sprites: Awaited<ReturnType<typeof generateThumbnailSprite>>
 ): Promise<void> {
   const { readFile } = await import('node:fs/promises')
-  const { join } = await import('node:path')
 
-  // Upload caption/subtitle/description VTTs
+  // Upload caption/subtitle VTTs
   for (const track of captions) {
     const content = await readFile(track.filePath, 'utf-8')
     const key = `videos/${videoId}/tracks/${track.type}.vtt`
     await storage.upload(key, content, 'text/vtt')
+  }
+
+  // Upload description VTT (if generated)
+  if (description) {
+    const content = await readFile(description.filePath, 'utf-8')
+    await storage.upload(`videos/${videoId}/tracks/descriptions.vtt`, content, 'text/vtt')
   }
 
   // Upload chapters VTT
@@ -201,6 +216,7 @@ async function saveResultsToDatabase(
   videoId: string,
   transcodeResult: Awaited<ReturnType<typeof transcodeVideo>>,
   captionResults: Awaited<ReturnType<typeof generateCaptions>>,
+  descriptionResult: Awaited<ReturnType<typeof generateDescriptions>>,
   chapterResult: Awaited<ReturnType<typeof detectChapters>>,
   spriteResult: Awaited<ReturnType<typeof generateThumbnailSprite>>,
   manifests: Awaited<ReturnType<typeof uploadStreamingAssets>>
@@ -232,6 +248,20 @@ async function saveResultsToDatabase(
         label: track.label,
         src: `videos/${videoId}/tracks/${track.type}.vtt`,
         default: track.default,
+      },
+    })
+  }
+
+  // Create description track (if generated)
+  if (descriptionResult) {
+    await prisma.track.create({
+      data: {
+        videoId,
+        type: 'descriptions',
+        language: 'en',
+        label: 'Audio Descriptions (AI)',
+        src: `videos/${videoId}/tracks/descriptions.vtt`,
+        default: false,
       },
     })
   }

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, DragEvent } from 'react'
+import { useState, useRef, useCallback, useEffect, DragEvent } from 'react'
 import { api } from '../services/api'
 import {
   Upload as UploadIcon,
@@ -10,6 +10,7 @@ import {
   FileVideo,
   X,
   Trash2,
+  Square,
 } from 'lucide-react'
 
 interface UploadProps {
@@ -43,6 +44,20 @@ export function Upload({ onVideoUploaded }: UploadProps) {
   const [isDragOver, setIsDragOver] = useState(false)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const abortRef = useRef<(() => void) | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  // Create/revoke object URL for local video preview
+  useEffect(() => {
+    if (file && state !== 'uploading') {
+      const url = URL.createObjectURL(file)
+      setPreviewUrl(url)
+      return () => URL.revokeObjectURL(url)
+    } else {
+      setPreviewUrl(null)
+    }
+  }, [file, state])
 
   // ===== Drag & Drop handlers =====
   const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
@@ -100,14 +115,18 @@ export function Upload({ onVideoUploaded }: UploadProps) {
   }
 
   const clearFile = useCallback(() => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl)
+    }
     setFile(null)
+    setPreviewUrl(null)
     setError(null)
     setState('idle')
     setProgress(0)
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
-  }, [])
+  }, [previewUrl])
 
   // ===== Format file size =====
   const formatFileSize = (bytes: number) => {
@@ -156,10 +175,14 @@ export function Upload({ onVideoUploaded }: UploadProps) {
       setProgress(0)
       setError(null)
 
-      const result = await api.uploadVideo(file, (percent) => {
+      const { promise, abort } = api.uploadVideo(file, (percent) => {
         setProgress(percent)
       })
+      abortRef.current = abort
 
+      const result = await promise
+
+      abortRef.current = null
       setProgress(100)
       setVideoId(result.videoId)
       setState('success')
@@ -167,10 +190,24 @@ export function Upload({ onVideoUploaded }: UploadProps) {
 
       setTimeout(() => onVideoUploaded(result.videoId), 1500)
     } catch (err) {
+      abortRef.current = null
+      // AbortError means user cancelled — reset to idle
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setState('idle')
+        setProgress(0)
+        return
+      }
       setState('error')
       setError(err instanceof Error ? err.message : 'Upload failed')
     }
   }
+
+  const handleCancelUpload = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current()
+      abortRef.current = null
+    }
+  }, [])
 
   // ===== Render =====
   return (
@@ -344,51 +381,72 @@ export function Upload({ onVideoUploaded }: UploadProps) {
             </div>
           ) : (
             /* File Selected Card */
-            <div className="bg-yt-dark rounded-xl border border-[#3d3d3d] p-5 animate-fade-in">
-              <div className="flex items-start gap-4">
-                {/* File icon */}
-                <div className="p-3 bg-yt-gray rounded-lg shrink-0">
-                  <FileVideo className="w-8 h-8 text-yt-red" />
-                </div>
-
-                {/* File info */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">{file.name}</p>
-                  <div className="flex items-center gap-3 mt-1 text-xs text-yt-light">
-                    <span>{formatFileSize(file.size)}</span>
-                    <span className="w-1 h-1 rounded-full bg-yt-light/30" />
-                    <span>{file.type || 'unknown format'}</span>
+            <div className="bg-yt-dark rounded-xl border border-[#3d3d3d] overflow-hidden animate-fade-in">
+              {/* Video preview */}
+              {previewUrl && state !== 'uploading' && state !== 'success' && (
+                <div className="relative bg-black aspect-video group">
+                  <video
+                    ref={videoRef}
+                    src={previewUrl}
+                    className="w-full h-full object-contain cursor-pointer"
+                    controls
+                    muted
+                    preload="metadata"
+                    playsInline
+                  />
+                  {/* Subtle gradient overlay at bottom for duration badge contrast */}
+                  <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-black/50 to-transparent pointer-events-none" />
+                  {/* Duration badge */}
+                  <div className="absolute bottom-3 right-3 px-2 py-1 rounded bg-black/70 text-[11px] text-white/80 font-mono">
+                    {file.size > 100 * 1024 * 1024 ? '>10 min' : '<10 min'}
                   </div>
                 </div>
+              )}
 
-                {/* Remove button */}
-                <button
-                  onClick={clearFile}
-                  disabled={state === 'uploading'}
-                  className="p-2 rounded-full hover:bg-white/10 text-yt-light hover:text-white transition-colors disabled:opacity-50"
-                  title="Remove file"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
+              {/* File info header */}
+              <div className="p-5">
+                <div className="flex items-start gap-4">
+                  <div className="p-3 bg-yt-gray rounded-lg shrink-0">
+                    <FileVideo className="w-8 h-8 text-yt-red" />
+                  </div>
 
-              {/* Title input */}
-              <div className="mt-4">
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Video title"
-                  className="w-full bg-yt-black border border-[#3d3d3d] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 placeholder:text-yt-light/50 transition-colors"
-                  disabled={state === 'uploading'}
-                />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{file.name}</p>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-yt-light">
+                      <span>{formatFileSize(file.size)}</span>
+                      <span className="w-1 h-1 rounded-full bg-yt-light/30" />
+                      <span>{file.type || 'unknown format'}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={clearFile}
+                    disabled={state === 'uploading'}
+                    className="p-2 rounded-full hover:bg-white/10 text-yt-light hover:text-white transition-colors disabled:opacity-50"
+                    title="Remove file"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Title input */}
+                <div className="mt-4">
+                  <input
+                    type="text"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="Video title"
+                    className="w-full bg-yt-black border border-[#3d3d3d] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500 placeholder:text-yt-light/50 transition-colors"
+                    disabled={state === 'uploading'}
+                  />
+                </div>
               </div>
             </div>
           )}
 
-          {/* Progress bar */}
+          {/* Progress bar with cancel button */}
           {state === 'uploading' && (
-            <div className="space-y-2 animate-fade-in">
+            <div className="space-y-3 animate-fade-in">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-yt-light flex items-center gap-2">
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-yt-red" />
@@ -402,6 +460,13 @@ export function Upload({ onVideoUploaded }: UploadProps) {
                   style={{ width: `${progress}%` }}
                 />
               </div>
+              <button
+                onClick={handleCancelUpload}
+                className="flex items-center justify-center gap-1.5 w-full py-2 border border-[#3d3d3d] hover:bg-yt-dark hover:border-red-800/50 text-yt-light hover:text-red-400 rounded-lg text-xs transition-all group"
+              >
+                <Square className="w-3 h-3 group-hover:fill-red-400 transition-colors" />
+                Cancel Upload
+              </button>
             </div>
           )}
 
@@ -454,10 +519,13 @@ export function Upload({ onVideoUploaded }: UploadProps) {
                 </>
               )}
               {state === 'uploading' && (
-                <div className="w-full flex items-center justify-center gap-2 bg-yt-dark text-yt-light font-medium rounded-lg px-6 py-3 text-sm border border-[#3d3d3d]">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Uploading to server...
-                </div>
+                <button
+                  onClick={handleCancelUpload}
+                  className="w-full flex items-center justify-center gap-2 bg-yt-dark hover:bg-red-900/20 text-yt-light hover:text-red-400 font-medium rounded-lg px-6 py-3 text-sm border border-[#3d3d3d] hover:border-red-800/50 transition-all group"
+                >
+                  <Square className="w-4 h-4 group-hover:fill-red-400 transition-colors" />
+                  Cancel Upload
+                </button>
               )}
             </div>
           )}
