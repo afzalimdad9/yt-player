@@ -1,0 +1,61 @@
+# ===== Stage 1: Dependencies =====
+FROM node:22-alpine AS deps
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app
+
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+COPY package.json pnpm-workspace.yaml turbo.json tsconfig.base.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/database/package.json packages/database/
+COPY packages/storage/package.json packages/storage/
+COPY packages/queue/package.json packages/queue/
+COPY packages/pipeline/package.json packages/pipeline/
+COPY packages/api/package.json packages/api/
+
+RUN pnpm install --frozen-lockfile
+
+# ===== Stage 2: Build =====
+FROM node:22-alpine AS builder
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
+COPY --from=deps /app/packages/database/node_modules ./packages/database/node_modules
+COPY --from=deps /app/packages/storage/node_modules ./packages/storage/node_modules
+COPY --from=deps /app/packages/queue/node_modules ./packages/queue/node_modules
+COPY --from=deps /app/packages/pipeline/node_modules ./packages/pipeline/node_modules
+COPY --from=deps /app/packages/api/node_modules ./packages/api/node_modules
+
+COPY packages/ packages/
+
+RUN cd packages/database && npx prisma generate
+RUN pnpm build
+
+# ===== Stage 3: Production =====
+FROM node:22-alpine AS production
+
+# Workers need FFmpeg and Whisper
+RUN apk add --no-cache ffmpeg python3 py3-pip
+RUN pip3 install openai-whisper --no-cache-dir
+
+WORKDIR /app
+
+COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/packages/shared/package.json ./packages/shared/
+COPY --from=builder /app/packages/database/dist ./packages/database/dist
+COPY --from=builder /app/packages/database/package.json ./packages/database/
+COPY --from=builder /app/packages/database/node_modules/.prisma ./packages/database/node_modules/.prisma
+COPY --from=builder /app/packages/storage/dist ./packages/storage/dist
+COPY --from=builder /app/packages/storage/package.json ./packages/storage/
+COPY --from=builder /app/packages/queue/dist ./packages/queue/dist
+COPY --from=builder /app/packages/queue/package.json ./packages/queue/
+COPY --from=builder /app/packages/pipeline/dist ./packages/pipeline/dist
+COPY --from=builder /app/packages/pipeline/package.json ./packages/pipeline/
+COPY --from=builder /app/packages/api/dist ./packages/api/dist
+COPY --from=builder /app/packages/api/package.json ./packages/api/
+
+COPY package.json ./
+
+CMD ["node", "packages/api/dist/worker-entry.js"]

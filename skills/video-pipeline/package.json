@@ -1,0 +1,6 @@
+{
+  "name": "@yt-player/skill-video-pipeline",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Custom skill for video processing pipeline"
+}

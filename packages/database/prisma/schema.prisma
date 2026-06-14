@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum VideoStatus {
+  PENDING
+  DOWNLOADING
+  DOWNLOADED
+  PROCESSING
+  READY
+  FAILED
+}
+
+model Video {
+  id           String   @id @default(uuid())
+  title        String   @default("")
+  description  String   @default("")
+  originalUrl  String
+  duration     Float    @default(0)
+  width        Int      @default(0)
+  height       Int      @default(0)
+  fps          Float    @default(0)
+  status       VideoStatus @default(PENDING)
+  error        String?
+  thumbnailUrl String?
+
+  // Relations
+  renditions    Rendition[]
+  audioRenditions AudioRendition[]
+  tracks        Track[]
+  chapters      Chapter[]
+  manifests     Manifest[]
+  thumbnailSprites ThumbnailSprite[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Rendition {
+  id        String @id @default(uuid())
+  videoId   String
+  quality   String
+  width     Int
+  height    Int
+  bitrate   Int
+  codec     String
+  container String
+  path      String
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId])
+}
+
+model AudioRendition {
+  id      String @id @default(uuid())
+  videoId String
+  quality String
+  bitrate Int
+  codec   String
+  path    String
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId])
+}
+
+model Track {
+  id       String @id @default(uuid())
+  videoId  String
+  type     String // captions, subtitles, descriptions, chapters
+  language String @default("en")
+  label    String
+  src      String
+  default  Boolean @default(false)
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId])
+}
+
+model Chapter {
+  id        String  @id @default(uuid())
+  videoId   String
+  title     String
+  startTime Float
+  endTime   Float
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId])
+}
+
+model Manifest {
+  id       String @id @default(uuid())
+  videoId  String
+  protocol String // hls or dash
+  url      String
+  bandwidth Int
+  resolution String?
+  codecs   String?
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId])
+}
+
+model ThumbnailSprite {
+  id          String @id @default(uuid())
+  videoId     String
+  src         String
+  vttSrc      String
+  tileWidth   Int
+  tileHeight  Int
+  columns     Int
+  rows        Int
+  totalFrames Int
+  interval    Float
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId])
+}

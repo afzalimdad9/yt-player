@@ -1,0 +1,127 @@
+# Video Pipeline Steering Configuration
+# Defines the processing workflow steps and their dependencies
+
+version: "1.0"
+
+pipeline:
+  name: video-processing
+  description: "Complete video processing pipeline from URL to streaming-ready"
+
+  steps:
+    - id: download
+      name: "Download Video"
+      description: "Download video from source URL using yt-dlp"
+      depends_on: []
+      timeout: 600
+      retries: 3
+      worker: video-ingest
+      resources:
+        cpu: 1
+        memory: 512MB
+        disk: 10GB
+
+    - id: transcode
+      name: "Transcode Video"
+      description: "Transcode to HLS + DASH with multiple quality levels"
+      depends_on: [download]
+      timeout: 1800
+      retries: 2
+      worker: video-process
+      resources:
+        cpu: 4
+        memory: 2GB
+        disk: 20GB
+
+    - id: captions
+      name: "Generate Captions"
+      description: "Generate captions, subtitles, and descriptions using Whisper"
+      depends_on: [download]
+      timeout: 1800
+      retries: 2
+      worker: caption-generate
+      resources:
+        cpu: 4
+        memory: 4GB
+        disk: 2GB
+
+    - id: chapters
+      name: "Detect Chapters"
+      description: "Detect scene changes and generate chapter markers"
+      depends_on: [transcode]
+      timeout: 300
+      retries: 2
+      worker: video-process
+      resources:
+        cpu: 1
+        memory: 512MB
+
+    - id: thumbnails
+      name: "Generate Thumbnail Sprites"
+      description: "Generate thumbnail sprite sheet with VTT"
+      depends_on: [transcode]
+      timeout: 300
+      retries: 2
+      worker: thumbnail-generate
+      resources:
+        cpu: 1
+        memory: 512MB
+
+    - id: manifest
+      name: "Generate Manifests"
+      description: "Generate HLS master playlist and DASH MPD"
+      depends_on: [transcode, captions, chapters, thumbnails]
+      timeout: 60
+      retries: 3
+      worker: manifest-generate
+      resources:
+        cpu: 0.5
+        memory: 256MB
+
+    - id: upload
+      name: "Upload Assets"
+      description: "Upload all generated assets to S3/MinIO storage"
+      depends_on: [manifest]
+      timeout: 600
+      retries: 3
+      worker: manifest-generate
+      resources:
+        cpu: 1
+        memory: 512MB
+      storage:
+        type: s3
+        bucket: yt-player
+        prefix: "videos/{videoId}/"
+
+  quality_configs:
+    - resolution: "144p"
+      width: 256
+      height: 144
+      bitrate: 100000
+    - resolution: "240p"
+      width: 426
+      height: 240
+      bitrate: 300000
+    - resolution: "360p"
+      width: 640
+      height: 360
+      bitrate: 600000
+    - resolution: "480p"
+      width: 854
+      height: 480
+      bitrate: 1200000
+    - resolution: "720p"
+      width: 1280
+      height: 720
+      bitrate: 2500000
+    - resolution: "1080p"
+      width: 1920
+      height: 1080
+      bitrate: 5000000
+
+  streaming:
+    protocols:
+      - hls
+      - dash
+    segment_duration: 6
+    caption_models:
+      - whisper-base

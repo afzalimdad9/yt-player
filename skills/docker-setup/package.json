@@ -1,0 +1,6 @@
+{
+  "name": "@yt-player/skill-docker-setup",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Custom skill for Docker development environment management"
+}

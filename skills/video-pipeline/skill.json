@@ -1,0 +1,14 @@
+{
+  "name": "video-pipeline",
+  "version": "1.0.0",
+  "description": "Video processing pipeline operations - download, transcode, caption, thumbnail, and stream",
+  "author": "YT Player Team",
+  "tags": ["video", "ffmpeg", "streaming", "hls", "dash"],
+  "agent_hints": {
+    "tools": ["ffmpeg", "yt-dlp", "whisper", "ffprobe"],
+    "languages": ["TypeScript"],
+    "frameworks": ["Fastify", "React", "BullMQ"]
+  },
+  "instructions": "skills/video-pipeline/instructions.md",
+  "dependencies": ["@yt-player/pipeline", "@yt-player/storage"]
+}

@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.base.json",
+  "files": [],
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/database" },
+    { "path": "packages/storage" },
+    { "path": "packages/queue" },
+    { "path": "packages/pipeline" },
+    { "path": "packages/api" },
+    { "path": "packages/web" }
+  ]
+}

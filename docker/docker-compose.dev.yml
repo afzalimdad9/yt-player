@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      target: development
+    volumes:
+      - ../packages/api/src:/app/packages/api/src
+      - ../packages/shared/src:/app/packages/shared/src
+      - ../packages/database/src:/app/packages/database/src
+      - ../packages/storage/src:/app/packages/storage/src
+      - ../packages/queue/src:/app/packages/queue/src
+      - ../packages/pipeline/src:/app/packages/pipeline/src
+    command: pnpm --filter @yt-player/api dev
+    environment:
+      NODE_ENV: development
+
+  worker:
+    build:
+      target: development
+    volumes:
+      - ../packages/api/src:/app/packages/api/src
+      - ../packages/shared/src:/app/packages/shared/src
+      - ../packages/database/src:/app/packages/database/src
+      - ../packages/storage/src:/app/packages/storage/src
+      - ../packages/queue/src:/app/packages/queue/src
+      - ../packages/pipeline/src:/app/packages/pipeline/src
+    command: pnpm --filter @yt-player/api dev:worker
+    environment:
+      NODE_ENV: development
+
+  web:
+    build:
+      target: development
+    volumes:
+      - ../packages/web/src:/app/packages/web/src
+    command: pnpm --filter @yt-player/web dev --host 0.0.0.0
+    ports:
+      - "5173:5173"
+    environment:
+      NODE_ENV: development

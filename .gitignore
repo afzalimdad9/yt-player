@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.next/
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+*.log
+.cache/
+.turbo/
+coverage/
+
+# Local MinIO data
+docker/data/
+
+# Prisma
+packages/database/prisma/migrations/
+
+# Video processing temp files
+tmp/
+downloads/
+output/

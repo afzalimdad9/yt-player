@@ -1,0 +1,93 @@
+# Deployment Steering Configuration
+# Defines environment-specific settings and deployment strategies
+
+version: "1.0"
+
+environments:
+  development:
+    description: "Local development environment"
+    compose_file: "docker/docker-compose.yml"
+    compose_override: "docker/docker-compose.dev.yml"
+    storage:
+      type: minio
+      endpoint: "http://localhost:9000"
+      bucket: yt-player
+      public: true
+    database:
+      host: localhost
+      port: 5432
+      name: ytplayer
+    redis:
+      host: localhost
+      port: 6379
+    api:
+      port: 4000
+      cors_origin: "http://localhost:5173"
+    frontend:
+      port: 5173
+      dev_server: true
+    worker:
+      concurrency: 2
+
+  production:
+    description: "Production deployment environment"
+    compose_file: "docker/docker-compose.yml"
+    compose_override: "docker/docker-compose.prod.yml"
+    storage:
+      type: s3
+      bucket: yt-player-prod
+      region: us-east-1
+      public: true
+    database:
+      host: postgres.example.com
+      port: 5432
+      name: ytplayer_prod
+      ssl: true
+    redis:
+      host: redis.example.com
+      port: 6379
+    api:
+      port: 4000
+      cors_origin: "https://ytplayer.example.com"
+      workers: 4
+    frontend:
+      port: 80
+      domain: "ytplayer.example.com"
+      ssl: true
+    worker:
+      concurrency: 4
+      instances: 3
+
+  staging:
+    description: "Staging environment for testing"
+    compose_file: "docker/docker-compose.yml"
+    storage:
+      type: s3
+      bucket: yt-player-staging
+      region: us-east-1
+    api:
+      port: 4000
+      cors_origin: "https://staging.ytplayer.example.com"
+    worker:
+      concurrency: 2
+      instances: 1
+
+health_checks:
+  api: "/api/health"
+  database: "pg_isready"
+  redis: "redis-cli ping"
+  storage: "mc ls"
+  worker: "bullmq:queue-stats"
+
+monitoring:
+  metrics:
+    - pipeline_duration_seconds
+    - videos_processed_total
+    - videos_failed_total
+    - storage_upload_bytes
+    - queue_job_count
+  alerts:
+    - metric: videos_failed_total
+      threshold: 5
+      window: 1h
+      channel: email

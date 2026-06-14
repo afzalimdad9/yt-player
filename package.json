@@ -1,0 +1,30 @@
+{
+  "name": "yt-player",
+  "version": "1.0.0",
+  "private": true,
+  "description": "YouTube-clone video player with advanced streaming pipeline",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "clean": "turbo clean",
+    "typecheck": "turbo typecheck",
+    "db:generate": "pnpm --filter @yt-player/database db:generate",
+    "db:push": "pnpm --filter @yt-player/database db:push",
+    "db:migrate": "pnpm --filter @yt-player/database db:migrate",
+    "db:studio": "pnpm --filter @yt-player/database db:studio",
+    "docker:dev": "docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up",
+    "docker:prod": "docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up",
+    "docker:build": "docker compose -f docker/docker-compose.yml build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.0"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.15.0"
+}
