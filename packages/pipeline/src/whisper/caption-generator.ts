@@ -33,7 +33,7 @@ export interface TranscriptionConfig {
 const DEFAULT_CONFIG: TranscriptionConfig = {
   model: 'base',
   language: 'auto',
-  wordTimestamps: false,
+  wordTimestamps: true,
   threads: 4,
   preferPython: false,
   verbose: false,

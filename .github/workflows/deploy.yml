@@ -1,0 +1,357 @@
+name: Deploy to AWS Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Docker image tag to deploy (defaults to git SHA)'
+        required: false
+        type: string
+      skip_migrations:
+        description: 'Skip database migrations'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ECR_BASE: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION || 'us-east-1' }}.amazonaws.com
+  IMAGE_TAG: ${{ github.event.inputs.image_tag || github.sha }}
+  TERRAFORM_DIR: terraform/environments/production
+
+jobs:
+  # ==========================================================================
+  # 1. Test — run typecheck, lint, and build locally
+  # ==========================================================================
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: cd packages/database && npx prisma generate
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+  # ==========================================================================
+  # 2. Build & Push — build Docker images and push to ECR
+  # ==========================================================================
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.api
+          push: true
+          tags: |
+            ${{ env.ECR_BASE }}/yt-player/api:${{ env.IMAGE_TAG }}
+            ${{ env.ECR_BASE }}/yt-player/api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.worker
+          push: true
+          tags: |
+            ${{ env.ECR_BASE }}/yt-player/worker:${{ env.IMAGE_TAG }}
+            ${{ env.ECR_BASE }}/yt-player/worker:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.web
+          push: true
+          tags: |
+            ${{ env.ECR_BASE }}/yt-player/web:${{ env.IMAGE_TAG }}
+            ${{ env.ECR_BASE }}/yt-player/web:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ==========================================================================
+  # 3. Migrate — run database migrations via ECS run-task
+  # ==========================================================================
+  migrate:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.inputs.skip_migrations }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run database migrations
+        run: |
+          echo "🚀 Running database migrations..."
+
+          TASK_ARN=$(aws ecs run-task \
+            --cluster yt-player-prod \
+            --task-definition production-yt-player-migration \
+            --launch-type FARGATE \
+            --network-configuration '{
+              "awsvpcConfiguration": {
+                "subnets": ["${{ secrets.PRIVATE_SUBNET_IDS }}"],
+                "securityGroups": ["${{ secrets.API_SG_ID }}"],
+                "assignPublicIp": "DISABLED"
+              }
+            }' \
+            --overrides '{
+              "containerOverrides": [{
+                "name": "migration",
+                "command": ["npx", "prisma", "migrate", "deploy"]
+              }]
+            }' \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          echo "Migration task started: $TASK_ARN"
+
+          # Wait for the task to stop
+          aws ecs wait tasks-stopped \
+            --cluster yt-player-prod \
+            --tasks "$TASK_ARN"
+
+          # Check exit code
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster yt-player-prod \
+            --tasks "$TASK_ARN" \
+            --query 'tasks[0].containers[0].exitCode' \
+            --output text)
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "❌ Migration failed with exit code $EXIT_CODE"
+            # Fetch logs for debugging
+            aws logs get-log-events \
+              --log-group-name /ecs/production-migration \
+              --log-stream-name "$(aws logs describe-log-streams \
+                --log-group-name /ecs/production-migration \
+                --order-by LastEventTime \
+                --descending \
+                --limit 1 \
+                --query 'logStreams[0].logStreamName' \
+                --output text)" \
+              --limit 50 \
+              --query 'events[*].message' \
+              --output text
+            exit 1
+          fi
+
+          echo "✅ Database migrations complete"
+
+  # ==========================================================================
+  # 4. Deploy — force new deployments of API and Worker services
+  # ==========================================================================
+  deploy:
+    needs: migrate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy API service
+        run: |
+          echo "🚀 Deploying API service..."
+          aws ecs update-service \
+            --cluster yt-player-prod \
+            --service production-yt-player-api \
+            --force-new-deployment \
+            --output text
+
+      - name: Deploy Worker service
+        run: |
+          echo "🚀 Deploying Worker service..."
+          aws ecs update-service \
+            --cluster yt-player-prod \
+            --service production-yt-player-worker \
+            --force-new-deployment \
+            --output text
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@9.15.0 --activate
+
+      - name: Build and deploy Frontend to S3
+        run: |
+          echo "🚀 Building and deploying frontend..."
+          cd packages/web
+
+          # Install dependencies and build
+          pnpm install --frozen-lockfile
+          pnpm build
+
+          # Sync to S3
+          aws s3 sync dist/ \
+            "s3://${{ secrets.FRONTEND_BUCKET }}/" \
+            --delete \
+            --cache-control "public, max-age=31536000, immutable" \
+            --exclude "index.html"
+
+          aws s3 cp dist/index.html \
+            "s3://${{ secrets.FRONTEND_BUCKET }}/index.html" \
+            --cache-control "public, max-age=0, must-revalidate"
+
+          # Invalidate CloudFront
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ secrets.CLOUDFRONT_DIST_ID }}" \
+            --paths "/*" \
+            --output text
+
+          echo "✅ Frontend deployed"
+
+  # ==========================================================================
+  # 5. Health Check — verify the deployment is healthy
+  # ==========================================================================
+  health-check:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for deployment to settle
+        run: sleep 45
+
+      - name: Check API health
+        run: |
+          echo "🔍 Checking API health..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://${{ secrets.API_DOMAIN }}/api/health" \
+            --connect-timeout 10 \
+            --max-time 30)
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ API health check failed (HTTP $HTTP_CODE)"
+            curl -s "https://${{ secrets.API_DOMAIN }}/api/health"
+            exit 1
+          fi
+          echo "✅ API is healthy"
+
+      - name: Check Frontend loads
+        run: |
+          echo "🔍 Checking frontend..."
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://${{ secrets.FRONTEND_DOMAIN }}" \
+            --connect-timeout 10 \
+            --max-time 30)
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Frontend check failed (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+          echo "✅ Frontend is serving"
+
+      - name: Verify ECS service stability
+        run: |
+          echo "🔍 Checking ECS service stability..."
+          # Wait for deployments to complete
+          for service in production-yt-player-api production-yt-player-worker; do
+            echo "  Waiting for $service deployment to complete..."
+            aws ecs wait services-stable \
+              --cluster yt-player-prod \
+              --services "$service"
+            echo "  ✅ $service is stable"
+          done
+
+  # ==========================================================================
+  # 6. Notify — send Slack notification with deployment status
+  # ==========================================================================
+  notify:
+    needs: [deploy, health-check]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine deployment status
+        id: status
+        run: |
+          if [ "${{ needs.health-check.result }}" = "success" ]; then
+            echo "status=success" >> "$GITHUB_OUTPUT"
+            echo "icon=✅" >> "$GITHUB_OUTPUT"
+          elif [ "${{ needs.health-check.result }}" = "failure" ]; then
+            echo "status=failure" >> "$GITHUB_OUTPUT"
+            echo "icon=❌" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=cancelled" >> "$GITHUB_OUTPUT"
+            echo "icon=⚠️" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Send Slack notification
+        if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "${{ steps.status.outputs.icon }} YT Player deploy *${{ steps.status.outputs.status }}*",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*YT Player Deployment* ${{ steps.status.outputs.icon }}\n*Status:* ${{ steps.status.outputs.status }}\n*Tag:* `${{ github.sha }}`\n*Branch:* `${{ github.ref_name }}`\n*Actor:* ${{ github.actor }}\n*Workflow:* ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                  }
+                }
+              ]
+            }

@@ -1440,7 +1440,576 @@ aws ecs update-service \
 
 ---
 
-## 11. Cost Estimates
+## 11. Staging Environment
+
+> A lighter-weight deployment for testing, QA, and pre-production validation. Staging mirrors production's architecture but uses smaller instances, single-AZ, and stripped-down redundancy to keep costs under **~$150/month**.
+
+### Architecture Differences from Production
+
+| Aspect | Production | Staging |
+|--------|------------|---------|
+| **RDS** | `db.r6g.large` × 2 (Multi-AZ + read replica) | `db.t4g.small` × 1 (Single-AZ, no replica) |
+| **Redis** | `cache.r6g.large` × 1 | `cache.t4g.small` × 1 |
+| **API tasks** | 2 × 1vCPU/2GB, scale to 6 | 1 × 0.5vCPU/1GB, scale to 2 |
+| **Worker tasks** | 2 × 4vCPU/8GB, scale to 10 | 1 × 2vCPU/4GB, scale to 2 |
+| **CloudFront** | Full (PriceClass_All) | None (S3 direct or PriceClass_100) |
+| **WAF** | Enabled (rate limit + AWS managed rules) | Disabled |
+| **Multi-AZ** | Yes (ALB, RDS, subnets) | No (single AZ) |
+| **Backup retention** | 30 days | 7 days |
+| **Log retention** | 90 days | 7 days |
+| **VPC endpoints** | All (S3, ECR, Logs, Secrets Manager, CloudWatch) | None (rely on NAT Gateway) |
+| **Read replica** | Yes (RDS read replica) | No |
+| **Deletion protection** | Enabled on RDS + ALB | Disabled (easier cleanup) |
+| **S3 versioning** | Enabled | Disabled |
+| **Container Insights** | Enabled | Disabled |
+
+### Terraform: Staging Environment Root Module
+
+The staging root module lives at `terraform/environments/staging/main.tf` and reuses the same modules as production with different variable values:
+
+```hcl
+# =============================================================================
+# YT Player — Staging Environment
+# =============================================================================
+
+terraform {
+  backend "s3" {
+    bucket         = "yt-player-terraform-state"
+    key            = "staging/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "yt-player-terraform-locks"
+  }
+}
+
+provider "aws" {
+  region = var.aws_region
+
+  default_tags {
+    tags = {
+      Environment = "staging"
+      Project     = "yt-player"
+      ManagedBy   = "terraform"
+    }
+  }
+}
+
+# =============================================================================
+# Variables
+# =============================================================================
+
+variable "aws_region" {
+  description = "AWS region"
+  type        = string
+  default     = "us-east-1"
+}
+
+variable "domain_name" {
+  description = "Domain for staging (e.g., staging.ytplayer.example.com)"
+  type        = string
+}
+
+variable "vlm_api_key" {
+  description = "VLM API key for audio descriptions (optional in staging)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "alert_email" {
+  description = "Email for CloudWatch alarm notifications"
+  type        = string
+  default     = ""
+}
+
+variable "api_image" {
+  description = "API Docker image URI (required — set in CI/CD or tfvars)"
+  type        = string
+}
+
+variable "worker_image" {
+  description = "Worker Docker image URI (required — set in CI/CD or tfvars)"
+  type        = string
+}
+
+# =============================================================================
+# Providers
+# =============================================================================
+
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+}
+
+# =============================================================================
+# Networking (2 AZs, single NAT, no VPC endpoints)
+# =============================================================================
+
+module "networking" {
+  source = "../../modules/networking"
+
+  environment         = "staging"
+  aws_region          = var.aws_region
+  vpc_cidr            = "10.1.0.0/16"
+  availability_zones  = ["us-east-1a", "us-east-1b"]
+  public_subnet_cidrs  = ["10.1.1.0/24", "10.1.2.0/24"]
+  private_subnet_cidrs = ["10.1.10.0/24", "10.1.11.0/24"]
+  isolated_subnet_cidrs = ["10.1.20.0/24", "10.1.21.0/24"]
+
+  single_nat_gateway   = true
+  enable_vpc_endpoints = false      # Save ~$10/month; use NAT for outbound
+  enable_flow_logs     = false
+  log_retention_days   = 7
+}
+
+# =============================================================================
+# Security Groups
+# =============================================================================
+
+module "security" {
+  source = "../../modules/security"
+
+  environment        = "staging"
+  vpc_id             = module.networking.vpc_id
+  vpc_cidr           = module.networking.vpc_cidr
+  deploy_frontend_ecs = false
+}
+
+# =============================================================================
+# IAM (same roles, no X-Ray)
+# =============================================================================
+
+module "iam" {
+  source = "../../modules/iam"
+
+  environment    = "staging"
+  s3_bucket_arn  = module.storage.video_storage_bucket_arn
+  enable_xray    = false
+}
+
+# =============================================================================
+# S3 Storage (no versioning, shorter lifecycle)
+# =============================================================================
+
+module "storage" {
+  source = "../../modules/storage"
+
+  environment           = "staging"
+  allowed_origins       = ["https://${var.domain_name}"]
+  enable_versioning     = false
+  glacier_transition_days = 30                  # Faster to Glacier
+  force_destroy_videos   = true                  # Easy clean-up
+  force_destroy_frontend = true
+  cloudfront_oai_arn     = ""                    # No CloudFront
+}
+
+# =============================================================================
+# Secrets Manager (subset)
+# =============================================================================
+
+module "secrets" {
+  source = "../../modules/secrets"
+
+  environment            = "staging"
+  ecs_execution_role_arn = module.iam.ecs_execution_role_arn
+  vlm_api_key            = var.vlm_api_key != "" ? var.vlm_api_key : null
+  api_cors_origin        = "https://${var.domain_name}"
+}
+
+# =============================================================================
+# RDS PostgreSQL (Single-AZ, t4g.small)
+# =============================================================================
+
+module "database" {
+  source = "../../modules/database"
+
+  environment          = "staging"
+  isolated_subnet_ids  = module.networking.isolated_subnet_ids
+  security_group_id    = module.security.rds_sg_id
+  master_username      = "ytplayer_admin"
+  instance_class       = "db.t4g.small"         # ~$26/month
+  allocated_storage    = 20                      # 20 GB gp3
+  max_allocated_storage = 100
+  multi_az             = false                   # Single-AZ
+  backup_retention_days = 7                      # 7-day retention
+  create_read_replica  = false
+}
+
+# =============================================================================
+# ElastiCache Redis (t4g.small)
+# =============================================================================
+
+module "redis" {
+  source = "../../modules/redis"
+
+  environment         = "staging"
+  isolated_subnet_ids = module.networking.isolated_subnet_ids
+  security_group_id   = module.security.redis_sg_id
+  node_type           = "cache.t4g.small"       # ~$17/month
+  num_cache_nodes     = 1
+  engine_version      = "7.1"
+}
+
+# =============================================================================
+# ACM Certificate
+# =============================================================================
+
+resource "aws_acm_certificate" "main" {
+  provider = aws.us_east_1
+
+  domain_name       = var.domain_name
+  subject_alternative_names = ["*.${var.domain_name}"]
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = { Name = "staging-yt-player-cert" }
+}
+
+# =============================================================================
+# ALB (no WAF, no deletion protection)
+# =============================================================================
+
+module "alb" {
+  source = "../../modules/alb"
+
+  environment        = "staging"
+  vpc_id             = module.networking.vpc_id
+  public_subnet_ids  = module.networking.public_subnet_ids
+  security_group_id  = module.security.alb_sg_id
+  certificate_arn    = aws_acm_certificate.main.arn
+
+  deploy_frontend_ecs     = false
+  enable_waf              = false    # Save ~$10/month
+  enable_deletion_protection = false # Easier tear-down
+  alarm_sns_topic_arns    = []
+}
+
+# =============================================================================
+# ECS Fargate (1 task each, smaller sizes)
+# =============================================================================
+
+module "ecs" {
+  source = "../../modules/ecs"
+
+  environment        = "staging"
+  aws_region         = var.aws_region
+  private_subnet_ids = module.networking.private_subnet_ids
+  api_security_group_id    = module.security.api_sg_id
+  worker_security_group_id = module.security.worker_sg_id
+
+  execution_role_arn = module.iam.ecs_execution_role_arn
+  task_role_arn      = module.iam.ecs_task_role_arn
+
+  api_target_group_arn        = module.alb.api_target_group_arn
+  api_target_group_arn_suffix = module.alb.api_target_group_arn_suffix
+  alb_arn_suffix              = module.alb.alb_arn_suffix
+
+  database_connection_secret_arn = module.database.db_connection_secret_arn
+  redis_connection_secret_arn    = module.redis.connection_secret_arn
+  video_storage_bucket           = module.storage.video_storage_bucket_id
+
+  api_cors_origin = "https://${var.domain_name}"
+
+  # Single minimal API task
+  api_image         = var.api_image
+  api_cpu           = 512
+  api_memory        = 1024
+  api_desired_count = 1
+  api_min_count     = 1
+  api_max_count     = 2
+
+  # Single reduced worker
+  worker_image         = var.worker_image
+  worker_cpu           = 2048
+  worker_memory        = 4096
+  worker_desired_count = 1
+  worker_min_count     = 1
+  worker_max_count     = 2
+
+  whisper_model          = "tiny"          # Faster, cheaper for testing
+  description_provider   = "openai"
+  log_retention_days     = 7
+}
+
+# =============================================================================
+# DNS (with ACM validation, no CloudFront records)
+# =============================================================================
+
+module "dns" {
+  source = "../../modules/dns"
+
+  zone_name          = var.domain_name
+  api_subdomain      = "api"
+  frontend_subdomain = "www"
+
+  alb_dns_name  = module.alb.alb_dns_name
+  alb_zone_id   = module.alb.alb_zone_id
+
+  deploy_frontend_cdn      = false
+  frontend_cdn_domain_name = ""
+  frontend_cdn_zone_id     = ""
+  video_cdn_domain_name    = ""
+  video_cdn_zone_id        = ""
+
+  cert_validation_records = {
+    for dvo in aws_acm_certificate.main.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      type   = dvo.resource_record_type
+      record = dvo.resource_record_value
+    }
+  }
+}
+
+resource "aws_acm_certificate_validation" "main" {
+  provider = aws.us_east_1
+
+  certificate_arn         = aws_acm_certificate.main.arn
+  validation_record_fqdns = module.dns.cert_validation_fqdns
+}
+
+# =============================================================================
+# Monitoring (minimal — fewer alarms, no dashboard)
+# =============================================================================
+
+module "monitoring" {
+  source = "../../modules/monitoring"
+
+  environment            = "staging"
+  aws_region             = var.aws_region
+  rds_instance_id        = module.database.db_instance_id
+  worker_log_group_name  = module.ecs.worker_log_group_name
+  alert_email         = var.alert_email
+  enable_cost_monitor = false
+}
+
+# =============================================================================
+# Outputs
+# =============================================================================
+
+output "api_url" {
+  value = "https://api.${var.domain_name}"
+}
+
+output "frontend_url" {
+  value = "https://${var.domain_name}"
+}
+
+output "ecs_cluster" {
+  value = module.ecs.cluster_name
+}
+
+output "database_endpoint" {
+  value     = module.database.db_endpoint
+  sensitive = true
+}
+
+output "redis_endpoint" {
+  value     = module.redis.endpoint
+  sensitive = true
+}
+
+output "api_log_group" {
+  value = module.ecs.api_log_group_name
+}
+
+output "worker_log_group" {
+  value = module.ecs.worker_log_group_name
+}
+```
+
+### Deploying Staging
+
+```bash
+cd terraform/environments/staging
+
+terraform init \
+  -backend-config="key=staging/terraform.tfstate" \
+  -backend-config="dynamodb_table=yt-player-terraform-locks"
+
+terraform plan \
+  -var="domain_name=staging.ytplayer.example.com" \
+  -var="alert_email=dev-team@example.com" \
+  -out=tfplan
+
+terraform apply tfplan
+```
+
+### CI/CD for Staging
+
+Create `.github/workflows/deploy-staging.yml` to deploy on every push to `develop` or PR to `main`:
+
+```yaml
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [develop, staging]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_BASE: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+  IMAGE_TAG: ${{ github.sha }}
+  BUCKET_NAME: yt-player-staging-${{ secrets.AWS_ACCOUNT_ID }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    concurrency: staging-deploy
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker images
+        run: |
+          docker build -f docker/Dockerfile.api \
+            -t $ECR_BASE/yt-player/api:$IMAGE_TAG \
+            -t $ECR_BASE/yt-player/api:staging-latest .
+          docker build -f docker/Dockerfile.worker \
+            -t $ECR_BASE/yt-player/worker:$IMAGE_TAG \
+            -t $ECR_BASE/yt-player/worker:staging-latest .
+          docker push --all-tags $ECR_BASE/yt-player/api
+          docker push --all-tags $ECR_BASE/yt-player/worker
+
+      - name: Run database migrations
+        run: |
+          aws ecs run-task \
+            --cluster yt-player-staging \
+            --task-definition yt-player-migration-staging \
+            --launch-type FARGATE \
+            --network-configuration '{
+              "awsvpcConfiguration": {
+                "subnets": ["${{ secrets.STAGING_PRIVATE_SUBNETS }}"],
+                "securityGroups": ["${{ secrets.STAGING_API_SG }}"]
+              }
+            }' \
+            --overrides '{
+              "containerOverrides": [{
+                "name": "migration",
+                "command": ["npx", "prisma", "migrate", "deploy"]
+              }]
+            }'
+
+      - name: Deploy ECS services
+        run: |
+          aws ecs update-service \
+            --cluster yt-player-staging \
+            --service yt-player-api-staging \
+            --force-new-deployment
+          aws ecs update-service \
+            --cluster yt-player-staging \
+            --service yt-player-worker-staging \
+            --force-new-deployment
+
+      - name: Build and deploy frontend
+        run: |
+          cd packages/web
+          pnpm install --frozen-lockfile
+          pnpm build
+          aws s3 sync dist/ "s3://$BUCKET_NAME/frontend/" --delete
+
+      - name: Health check
+        run: |
+          sleep 20
+          curl -f https://api.staging.ytplayer.example.com/api/health \
+            || (echo "Staging health check failed!" && exit 1)
+
+      - name: Notify Slack
+        if: always()
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "Staging deploy ${{ job.status == 'success' && '✅' || '❌' }} (${{ github.sha }})"
+            }
+```
+
+### Staging-Specific Environment Variables
+
+```bash
+# terraform/environments/staging/terraform.tfvars
+domain_name   = "staging.ytplayer.example.com"
+whisper_model = "tiny"
+alert_email   = "dev-team@example.com"
+```
+
+| Variable | Staging Value | Reason |
+|----------|--------------|--------|
+| `WHISPER_MODEL` | `tiny` | ~6× faster, ~1/10 the cost; sufficient for QA |
+| `API_CORS_ORIGIN` | `https://staging.ytplayer.example.com` | Separate frontend domain |
+| `STORAGE_BUCKET` | `yt-player-staging-ACCOUNT` | Separate bucket from production |
+| `LOG_LEVEL` | `debug` | More verbose logging for debugging |
+| `NODE_ENV` | `staging` | Distinct from production for metrics/tracing |
+
+### Lifecycle Management
+
+Staging should be easy to tear down and re-create:
+
+```bash
+# Destroy staging entirely (state preserved for re-creation)
+cd terraform/environments/staging
+export TF_VAR_domain_name="staging.ytplayer.example.com"
+terraform destroy
+
+# Re-create when needed
+terraform apply
+```
+
+**Tips for keeping staging costs low:**
+- **Schedule nightly shutdowns** of ECS services (scale to 0) using AWS Instance Scheduler
+- Set `force_destroy = true` on S3 buckets so `terraform destroy` succeeds without manual bucket emptying
+- Use **Terraform workspaces** for per-developer environments: `terraform workspace new feature-xyz`
+- Configure S3 **lifecycle to expire staging objects after 7 days**
+- Use `whisper_model = "tiny"` for ~6× faster pipeline runs and 10× lower GPU cost
+
+### Cost Breakdown
+
+| Service | Staging Configuration | Estimated Monthly |
+|---------|----------------------|-------------------|
+| **ECS Fargate API** | 1 × 0.5vCPU/1GB | ~$10 |
+| **ECS Fargate Worker** | 1 × 2vCPU/4GB | ~$30 |
+| **ALB** | 1 ALB, no WAF | ~$22 |
+| **RDS PostgreSQL** | db.t4g.small × 1 (Single-AZ, 20GB) | ~$26 |
+| **ElastiCache Redis** | cache.t4g.small × 1 | ~$17 |
+| **S3 Standard** | 50GB data + requests | ~$2 |
+| **NAT Gateway** | 1 NAT × minimal data | ~$32 |
+| **CloudWatch Logs** | 5GB ingest, 7-day retention | ~$3 |
+| **Secrets Manager** | 5 secrets | ~$2 |
+| **ACM + Route53** | Free (public certs + minimal queries) | ~$1 |
+| **Total** | | **~$145/month** |
+
+**vs Production: ~$972/month → Staging: ~$145/month (85% savings)**
+
+Staging is designed to stay under **$150/month** while still running the full application stack for realistic testing.
+
+---
+
+## 12. Cost Estimates
 
 Approximate monthly costs for a production deployment (us-east-1):
 
@@ -1468,7 +2037,7 @@ Approximate monthly costs for a production deployment (us-east-1):
 
 ---
 
-## 12. Runbook: Common Operations
+## 13. Runbook: Common Operations
 
 ### 12.1 Deploy a new version
 

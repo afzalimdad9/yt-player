@@ -11,6 +11,7 @@ import { createQueues } from '@yt-player/queue'
 const SubmitVideoSchema = z.object({
   url: z.string().url('Must be a valid URL').min(1, 'URL is required'),
   title: z.string().optional(),
+  wordTimestamps: z.boolean().optional(),
 })
 
 const VideoIdParam = z.object({
@@ -44,7 +45,11 @@ export async function videoRoutes(app: FastifyInstance) {
     // Enqueue processing job
     await videoIngestQueue.add(
       'ingest',
-      { videoId, url: body.url } satisfies VideoIngestJobData,
+      {
+        videoId,
+        url: body.url,
+        wordTimestamps: body.wordTimestamps,
+      } satisfies VideoIngestJobData,
       {
         jobId: videoId,
         attempts: 3,
@@ -115,10 +120,19 @@ export async function videoRoutes(app: FastifyInstance) {
       },
     })
 
+    // Read wordTimestamps from the upload fields (Fastify stores non-file fields)
+    const wordTimestampsField = data.fields?.wordTimestamps
+    const wt = typeof wordTimestampsField === 'string' ? wordTimestampsField : undefined
+    const wordTimestamps = wt === 'true' ? true : wt === 'false' ? false : undefined
+
     // Enqueue processing job with local file path
     await videoIngestQueue.add(
       'ingest',
-      { videoId, url: filePath } satisfies VideoIngestJobData,
+      {
+        videoId,
+        url: filePath,
+        wordTimestamps,
+      } satisfies VideoIngestJobData,
       {
         jobId: videoId,
         attempts: 3,

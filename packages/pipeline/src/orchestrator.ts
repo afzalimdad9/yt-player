@@ -18,6 +18,8 @@ import path from 'node:path'
 
 export interface PipelineConfig {
   storage: StorageClient
+  /** Whether to use word-level timestamps in captions (default: true) */
+  wordTimestamps?: boolean
 }
 
 /**
@@ -65,8 +67,11 @@ export async function runPipeline(
     const transcodeResult = await transcodeVideo(videoPath, videoId, metadata.height)
 
     // ===== Step 3: Captions =====
-    console.log(`[Pipeline] Generating captions for ${videoId}`)
-    const captionResults = await generateCaptions(audioPath, videoId)
+    const useWordTimestamps = config.wordTimestamps
+    console.log(`[Pipeline] Generating captions for ${videoId} (wordTimestamps: ${useWordTimestamps ?? true})`)
+    const captionResults = useWordTimestamps !== undefined
+      ? await generateCaptions(audioPath, videoId, 'en', { wordTimestamps: useWordTimestamps })
+      : await generateCaptions(audioPath, videoId)
 
     // ===== Step 4: Audio Descriptions (AI vision) =====
     console.log(`[Pipeline] Generating audio descriptions for ${videoId}`)

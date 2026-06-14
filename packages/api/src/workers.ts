@@ -26,7 +26,10 @@ export function startWorkers() {
       console.log(`[Worker:Ingest] Processing video ${videoId} from ${url}`)
 
       try {
-        await runPipeline(videoId, url, { storage })
+        await runPipeline(videoId, url, {
+          storage,
+          wordTimestamps: job.data.wordTimestamps,
+        })
         console.log(`[Worker:Ingest] Video ${videoId} processed successfully`)
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error'

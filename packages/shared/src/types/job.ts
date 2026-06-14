@@ -35,6 +35,8 @@ export interface VideoIngestJobData {
   videoId: string
   url: string
   userId?: string
+  /** Whether to use word-level timestamps in captions (default: true) */
+  wordTimestamps?: boolean
 }
 
 /** Data for the video processing (transcoding) job */
@@ -50,6 +52,8 @@ export interface CaptionGenerateJobData {
   videoId: string
   audioPath: string
   language: string
+  /** Whether to use word-level timestamps in captions (default: true) */
+  wordTimestamps?: boolean
 }
 
 /** Data for thumbnail generation job */

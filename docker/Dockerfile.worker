@@ -1,3 +1,17 @@
+# ===== Stage 0: Build whisper.cpp =====
+FROM alpine:3.20 AS whisper-builder
+
+RUN apk add --no-cache cmake build-base git
+
+# Pin to a specific tag for reproducible builds
+ARG WHISPER_CPP_VERSION=v1.7.4
+RUN git clone --depth 1 --branch ${WHISPER_CPP_VERSION} \
+    https://github.com/ggml-org/whisper.cpp.git /whisper.cpp
+
+WORKDIR /whisper.cpp
+RUN cmake -B build -DCMAKE_BUILD_TYPE=Release && \
+    cmake --build build -j $(nproc)
+
 # ===== Stage 1: Dependencies =====
 FROM node:22-alpine AS deps
 RUN apk add --no-cache python3 make g++
@@ -39,6 +53,9 @@ FROM node:22-alpine AS production
 # Workers need FFmpeg and Whisper
 RUN apk add --no-cache ffmpeg python3 py3-pip
 RUN pip3 install openai-whisper --no-cache-dir
+
+# Copy pre-compiled whisper.cpp binary (preferred backend)
+COPY --from=whisper-builder /whisper.cpp/build/bin/whisper-cli /usr/local/bin/whisper-cli
 
 WORKDIR /app
 

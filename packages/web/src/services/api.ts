@@ -103,12 +103,12 @@ class ApiService {
   }
 
   /** Submit a video URL for processing */
-  async submitVideo(url: string, title?: string) {
+  async submitVideo(url: string, title?: string, wordTimestamps?: boolean) {
     return this.request<{ success: boolean; videoId: string; status: string }>(
       '/videos',
       {
         method: 'POST',
-        body: JSON.stringify({ url, title }),
+        body: JSON.stringify({ url, title, wordTimestamps }),
       }
     )
   }
@@ -138,7 +138,11 @@ class ApiService {
   }
 
   /** Upload a video file directly. Returns promise + abort function. */
-  uploadVideo(file: File, onProgress?: (percent: number) => void): {
+  uploadVideo(
+    file: File,
+    onProgress?: (percent: number) => void,
+    wordTimestamps?: boolean
+  ): {
     promise: Promise<{ success: boolean; videoId: string; status: string }>
     abort: () => void
   } {
@@ -147,6 +151,9 @@ class ApiService {
     const promise = new Promise<{ success: boolean; videoId: string; status: string }>((resolve, reject) => {
       const formData = new FormData()
       formData.append('file', file)
+      if (wordTimestamps !== undefined) {
+        formData.append('wordTimestamps', String(wordTimestamps))
+      }
 
       xhr.open('POST', `${this.baseUrl}/videos/upload`)
 
