@@ -18,13 +18,13 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@yt-player/shared": "workspace:*",
-    "@yt-player/storage": "workspace:*",
     "@yt-player/database": "workspace:*",
     "@yt-player/queue": "workspace:*",
+    "@yt-player/shared": "workspace:*",
+    "@yt-player/storage": "workspace:*",
     "node-fetch": "^3.3.2"
   },
   "devDependencies": {
-    "typescript": "^5.8.0"
+    "typescript": "^6.0.3"
   }
 }

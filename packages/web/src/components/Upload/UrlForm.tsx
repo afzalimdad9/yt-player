@@ -1,4 +1,4 @@
-import { Link, Youtube, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
+import { Link, CirclePlay, Loader2, CheckCircle, AlertCircle } from 'lucide-react'
 
 interface UrlFormProps {
   url: string
@@ -114,7 +114,7 @@ export function UrlForm({
         {overallStatus === 'uploading' ? (
           <><Loader2 className="w-5 h-5 animate-spin" /> Queuing...</>
         ) : (
-          <><Youtube className="w-5 h-5" /> Process Video URL</>
+          <><CirclePlay className="w-5 h-5" /> Process Video URL</>
         )}
       </button>
     </form>

@@ -1,4 +1,4 @@
-import { Search, Menu, Upload as UploadIcon, Bell, User, Youtube } from 'lucide-react'
+import { Search, Menu, Upload as UploadIcon, Bell, User, CirclePlay } from 'lucide-react'
 import { ThemeToggle } from './ThemeToggle'
 
 interface HeaderProps {
@@ -17,7 +17,7 @@ export function Header({ onHomeClick, onUploadClick, darkMode, onToggleTheme }: 
           <Menu className="w-5 h-5 text-yt-white" />
         </button>
         <button onClick={onHomeClick} className="flex items-center gap-1 hover:opacity-80">
-          <Youtube className="w-7 h-7 text-yt-red" />
+          <CirclePlay className="w-7 h-7 text-yt-red" />
           <span className="text-lg font-semibold text-yt-white tracking-tight hidden sm:block">
             YT Player
           </span>

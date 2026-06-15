@@ -13,7 +13,7 @@ export function errorHandler(
     return reply.status(400).send({
       error: 'Validation Error',
       message: 'Invalid request data',
-      details: error.errors,
+      details: error.issues,
       requestId,
     })
   }

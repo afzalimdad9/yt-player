@@ -3,7 +3,7 @@ import { api } from '../services/api'
 import {
   Upload as UploadIcon,
   Link,
-  Youtube,
+  CirclePlay,
   Trash2,
   Square,
   X,
@@ -269,7 +269,7 @@ export function Upload({ onVideoUploaded }: UploadProps) {
     <div className="max-w-2xl mx-auto px-4 py-10">
       {/* Header */}
       <div className="flex items-center gap-3 mb-8">
-        <Youtube className="w-8 h-8 text-yt-red" />
+        <CirclePlay className="w-8 h-8 text-yt-red" />
         <div>
           <h1 className="text-2xl font-semibold">Upload Video</h1>
           <p className="text-sm text-yt-light mt-0.5">Submit a URL or drag-and-drop video files</p>
