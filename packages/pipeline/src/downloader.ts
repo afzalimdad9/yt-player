@@ -52,8 +52,8 @@ export async function downloadVideo(url: string, videoId: string): Promise<Downl
 
   console.log(`[Downloader] Downloading ${url} to ${videoPath}`)
 
-  // Download best video+audio combined
-  execSync(
+  // Download best video+audio combined, capture JSON metadata
+  const ytDlpOutput = execSync(
     `${ytDlpPath} -f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best" ` +
     `-o "${videoPath}" ` +
     `--merge-output-format mp4 ` +
@@ -62,11 +62,23 @@ export async function downloadVideo(url: string, videoId: string): Promise<Downl
     { stdio: 'pipe', encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }
   )
 
+  // Parse yt-dlp JSON to get the real title
+  let ytDlpTitle = ''
+  try {
+    const ytDlpData = JSON.parse(ytDlpOutput)
+    ytDlpTitle = ytDlpData.title || ytDlpData.fulltitle || ''
+  } catch {}
+
   // Extract audio for speech-to-text processing
   await extractAudio(videoPath, audioPath)
 
   // Probe metadata with ffprobe
   const metadata = await probeVideo(videoPath)
+
+  // Prefer yt-dlp title over ffprobe filename fallback
+  if (ytDlpTitle) {
+    metadata.title = ytDlpTitle
+  }
 
   return { videoPath, audioPath, metadata }
 }

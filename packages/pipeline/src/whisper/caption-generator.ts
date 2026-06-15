@@ -97,8 +97,8 @@ export async function generateCaptions(
   const transcriptionResult = await runWhisperTranscription(wavPath, outputDir, cfg)
 
   if (!transcriptionResult) {
-    console.warn('[CaptionGenerator] Transcription failed, generating placeholders')
-    return await generatePlaceholderTracks(outputDir, language)
+    console.warn('[CaptionGenerator] Transcription not available (no whisper runtime installed)')
+    return []
   }
 
   // ===== Step 4: Generate VTT track files =====

@@ -271,17 +271,19 @@ async function saveResultsToDatabase(
     })
   }
 
-  // Add chapters track
-  await prisma.track.create({
-    data: {
-      videoId,
-      type: 'chapters' as TrackType,
-      language: 'en',
-      label: 'Chapters',
-      src: `videos/${videoId}/tracks/chapters.vtt`,
-      default: false,
-    },
-  })
+  // Add chapters track (only if chapters were detected)
+  if (chapterResult.chapters.length > 0) {
+    await prisma.track.create({
+      data: {
+        videoId,
+        type: 'chapters' as TrackType,
+        language: 'en',
+        label: 'Chapters',
+        src: `videos/${videoId}/tracks/chapters.vtt`,
+        default: false,
+      },
+    })
+  }
 
   // Create chapters
   for (const chapter of chapterResult.chapters) {

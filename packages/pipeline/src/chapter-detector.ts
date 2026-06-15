@@ -32,7 +32,8 @@ export async function detectChapters(
   const totalDuration = await getVideoDuration(videoPath)
 
   // Compute chapter boundaries from scene transitions
-  const chapters = buildChapters(scenes, totalDuration)
+  // If no scenes detected, skip chapter creation (don't create a meaningless "Chapter 1")
+  const chapters = scenes.length > 0 ? buildChapters(scenes, totalDuration) : []
   await writeChaptersVtt(chapters, chaptersVtt)
 
   return { chapters, chaptersVtt }

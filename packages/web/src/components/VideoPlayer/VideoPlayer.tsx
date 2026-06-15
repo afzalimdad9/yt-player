@@ -26,6 +26,8 @@ export function VideoPlayer({ session, videoTitle, onTimeUpdate }: VideoPlayerPr
   const [buffered, setBuffered] = useState(0)
   const [playbackRate, setPlaybackRate] = useState(1)
   const [activeTrack, setActiveTrack] = useState<string>()
+  const [qualities, setQualities] = useState<{ height: number; level: number }[]>([])
+  const [currentQuality, setCurrentQuality] = useState(-1) // -1 = auto
 
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
@@ -70,9 +72,15 @@ export function VideoPlayer({ session, videoTitle, onTimeUpdate }: VideoPlayerPr
         hls.loadSource(session.hlsManifest)
         hls.attachMedia(video)
 
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
           setPlayerState('ready')
-          hls.currentLevel = -1
+          hls.currentLevel = -1 // auto
+          // Extract available quality levels
+          const levels = data.levels.map((level, index) => ({
+            height: level.height,
+            level: index,
+          }))
+          setQualities(levels)
         })
 
         hls.on(Hls.Events.ERROR, (_event, data) => {
@@ -256,6 +264,14 @@ export function VideoPlayer({ session, videoTitle, onTimeUpdate }: VideoPlayerPr
     }
   }, [])
 
+  const handleQualityChange = useCallback((level: number) => {
+    const hls = hlsRef.current
+    if (hls) {
+      hls.currentLevel = level // -1 for auto
+      setCurrentQuality(level)
+    }
+  }, [])
+
   // Loading indicator
   const isBuffering = playerState === 'loading'
 
@@ -343,11 +359,14 @@ export function VideoPlayer({ session, videoTitle, onTimeUpdate }: VideoPlayerPr
             isMuted={isMuted}
             isFullscreen={isFullscreen}
             playbackRate={playbackRate}
+            qualities={qualities}
+            currentQuality={currentQuality}
             onPlayPause={togglePlay}
             onVolumeChange={handleVolumeChange}
             onMuteToggle={toggleMute}
             onFullscreenToggle={toggleFullscreen}
             onPlaybackRateChange={handlePlaybackRateChange}
+            onQualityChange={handleQualityChange}
           />
         </div>
       </div>
