@@ -68,7 +68,7 @@ services:
       /bin/sh -c "
       mc alias set local http://minio:9000 minioadmin minioadmin;
       mc mb local/yt-player --ignore-existing;
-      mc policy set public local/yt-player;
+      mc anonymous set public local/yt-player;
       echo 'MinIO bucket initialized';
       "
 

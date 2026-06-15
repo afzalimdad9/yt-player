@@ -7,7 +7,7 @@ function defaultQueueOptions(): QueueOptions {
   return {
     connection: getConnectionOptions() as unknown as RedisOptions,
     defaultJobOptions: {
-      attempts: 3,
+      attempts: 1,
       backoff: {
         type: 'exponential',
         delay: 2000,
@@ -28,6 +28,9 @@ function defaultWorkerOptions(): WorkerOptions {
   return {
     connection: getConnectionOptions() as unknown as RedisOptions,
     concurrency: 3,
+    lockDuration: 600_000, // 10 minutes - video processing is long-running
+    stalledInterval: 300_000, // 5 minutes - check for stalled jobs less frequently
+    lockRenewTime: 150_000, // renew lock every 2.5 minutes
     limiter: {
       max: 5,
       duration: 1000,

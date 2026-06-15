@@ -52,7 +52,7 @@ export async function videoRoutes(app: FastifyInstance) {
       } satisfies VideoIngestJobData,
       {
         jobId: videoId,
-        attempts: 3,
+        attempts: 1,
         backoff: { type: 'exponential', delay: 2000 },
       }
     )
@@ -135,7 +135,7 @@ export async function videoRoutes(app: FastifyInstance) {
       } satisfies VideoIngestJobData,
       {
         jobId: videoId,
-        attempts: 3,
+        attempts: 1,
         backoff: { type: 'exponential', delay: 2000 },
       }
     )

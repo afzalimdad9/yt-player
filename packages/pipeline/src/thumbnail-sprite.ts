@@ -43,7 +43,7 @@ export async function generateThumbnailSprite(
   console.log(`[ThumbnailSprite] Generating ${totalFrames} thumbnails (${columns}x${rows} grid)`)
 
   // Generate thumbnail sprite sheet using FFmpeg
-  await generateSprite(videoPath, spriteFile, interval, spriteWidth, spriteHeight, tileWidth, tileHeight)
+  await generateSprite(videoPath, spriteFile, interval, columns, rows, tileWidth, tileHeight)
 
   // Generate VTT file for the sprite
   await writeSpriteVtt(vttFile, videoId, columns, tileWidth, tileHeight, totalFrames, interval)
@@ -71,8 +71,8 @@ function generateSprite(
   videoPath: string,
   outputPath: string,
   interval: number,
-  spriteWidth: number,
-  spriteHeight: number,
+  columns: number,
+  rows: number,
   tileWidth: number,
   tileHeight: number
 ): Promise<void> {
@@ -81,8 +81,9 @@ function generateSprite(
 
     const args = [
       '-i', videoPath,
-      '-vf', `fps=${fps},scale=${tileWidth}:${tileHeight}:force_original_aspect_ratio=decrease,tile=${spriteWidth}x${spriteHeight}`,
-      '-q:v', '3',
+      '-vf', `fps=${fps},scale=${tileWidth}:${tileHeight}:force_original_aspect_ratio=decrease,pad=${tileWidth}:${tileHeight}:(ow-iw)/2:(oh-ih)/2,tile=${columns}x${rows}`,
+      '-frames:v', '1',
+      '-q:v', '5',
       '-y',
       outputPath,
     ]

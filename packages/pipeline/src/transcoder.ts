@@ -57,17 +57,30 @@ export async function transcodeVideo(
   if (!existsSync(dashDir)) mkdirSync(dashDir, { recursive: true })
 
   // Filter qualities based on source max height
-  const applicableQualities = QUALITY_CONFIGS.filter(q => q.height <= maxHeight)
+  let applicableQualities = QUALITY_CONFIGS.filter(q => q.height <= maxHeight)
 
-  // Generate HLS renditions
-  const hlsResults = await Promise.all(
-    applicableQualities.map(q => generateHlsRendition(inputPath, hlsDir, q))
-  )
+  // In development, limit to fewer renditions for faster processing
+  if (process.env['NODE_ENV'] === 'development' || !process.env['NODE_ENV']) {
+    const devQualities = [VideoQuality.QUALITY_360P, VideoQuality.QUALITY_720P]
+    const devFiltered = applicableQualities.filter(q => devQualities.includes(q.quality))
+    if (devFiltered.length > 0) applicableQualities = devFiltered
+  }
 
-  // Generate DASH renditions
-  const dashResults = await Promise.all(
-    applicableQualities.map(q => generateDashRendition(inputPath, dashDir, q))
-  )
+  console.log(`[Transcoder] Encoding ${applicableQualities.length} quality levels sequentially...`)
+
+  // Generate HLS renditions sequentially to avoid CPU saturation
+  const hlsResults: RenditionResult[] = []
+  for (const q of applicableQualities) {
+    console.log(`[Transcoder] HLS ${q.quality} (${q.width}x${q.height})...`)
+    hlsResults.push(await generateHlsRendition(inputPath, hlsDir, q))
+  }
+
+  // Generate DASH renditions sequentially
+  const dashResults: RenditionResult[] = []
+  for (const q of applicableQualities) {
+    console.log(`[Transcoder] DASH ${q.quality} (${q.width}x${q.height})...`)
+    dashResults.push(await generateDashRendition(inputPath, dashDir, q))
+  }
 
   // Generate HLS master playlist
   await generateHlsMasterPlaylist(hlsDir, hlsResults)
@@ -103,17 +116,19 @@ function generateHlsRendition(
   hlsDir: string,
   config: QualityConfig
 ): Promise<RenditionResult> {
-  const segDir = path.join(hlsDir, config.quality)
+  const segDir = path.resolve(path.join(hlsDir, config.quality))
   if (!existsSync(segDir)) mkdirSync(segDir, { recursive: true })
 
-  const playlist = path.join(segDir, 'index.m3u8')
+  const playlist = path.resolve(path.join(segDir, 'index.m3u8'))
 
   return new Promise((resolve, reject) => {
+    const absInput = path.resolve(inputPath)
+
     const args = [
-      '-i', inputPath,
+      '-i', absInput,
       '-vf', `scale=${config.width}:${config.height}:force_original_aspect_ratio=decrease,pad=${config.width}:${config.height}:(ow-iw)/2:(oh-ih)/2`,
       '-c:v', 'libx264',
-      '-preset', 'medium',
+      '-preset', 'veryfast',
       '-profile:v', 'main',
       '-b:v', String(config.bitrate),
       '-maxrate', String(config.maxrate),
@@ -159,17 +174,20 @@ function generateDashRendition(
   dashDir: string,
   config: QualityConfig
 ): Promise<RenditionResult> {
-  const segDir = path.join(dashDir, config.quality)
+  const segDir = path.resolve(path.join(dashDir, config.quality))
   if (!existsSync(segDir)) mkdirSync(segDir, { recursive: true })
 
   const manifest = path.join(segDir, 'init.mp4')
 
   return new Promise((resolve, reject) => {
+    const absInput = path.resolve(inputPath)
+    const absManifest = path.resolve(path.join(segDir, 'manifest.mpd'))
+
     const args = [
-      '-i', inputPath,
+      '-i', absInput,
       '-vf', `scale=${config.width}:${config.height}:force_original_aspect_ratio=decrease,pad=${config.width}:${config.height}:(ow-iw)/2:(oh-ih)/2`,
       '-c:v', 'libx264',
-      '-preset', 'medium',
+      '-preset', 'veryfast',
       '-profile:v', 'main',
       '-b:v', String(config.bitrate),
       '-maxrate', String(config.maxrate),
@@ -179,13 +197,12 @@ function generateDashRendition(
       '-ar', '44100',
       '-f', 'dash',
       '-seg_duration', '6',
-      '-frag_duration', '6000',
-      '-frag_type', 'duration',
+      '-single_file', '1',
       '-init_seg_name', 'init.m4s',
-      '-media_seg_name', 'segment_$Number$.m4s',
+      '-media_seg_name', 'stream.m4s',
       '-adaptation_sets', 'id=0,streams=v id=1,streams=a',
       '-y',
-      path.join(segDir, 'manifest.mpd'),
+      absManifest,
     ]
 
     const ffmpeg = spawn('ffmpeg', args, { stdio: 'pipe' })
