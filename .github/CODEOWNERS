@@ -1,0 +1,157 @@
+# =============================================================================
+# CODEOWNERS — Automatic Code Review Assignment
+# =============================================================================
+# When a PR modifies files matching a pattern, the listed users/teams are
+# automatically added as reviewers.
+#
+# Syntax:
+#   pattern    @user @org/team
+#
+# Patterns are evaluated in order; the last matching pattern takes precedence.
+# More specific patterns override less specific ones.
+#
+# For teams: @org/team-name (e.g., @yt-player/backend, @yt-player/frontend)
+# For users: @username
+# =============================================================================
+
+
+# =============================================================================
+# Global Default — All files
+# =============================================================================
+# Every PR needs at least the project maintainer as a reviewer.
+*                                                       @afzalimdad9
+
+
+# =============================================================================
+# Shared Types & Configuration
+# =============================================================================
+
+# Shared type definitions, enums, and Zod schemas
+/packages/shared/                                       @afzalimdad9
+
+# Root configuration (monorepo, TypeScript, build)
+/package.json                                           @afzalimdad9
+/pnpm-workspace.yaml                                    @afzalimdad9
+/turbo.json                                             @afzalimdad9
+/tsconfig*.json                                         @afzalimdad9
+
+
+# =============================================================================
+# Backend — Database, API, Queue, Storage
+# =============================================================================
+
+# Database schema, migrations, and Prisma client
+/packages/database/                                     @afzalimdad9
+
+# S3/MinIO storage abstraction
+/packages/storage/                                      @afzalimdad9
+
+# BullMQ queue infrastructure and Redis connection
+/packages/queue/                                        @afzalimdad9
+
+# Fastify API server — routes, middleware, workers
+/packages/api/                                          @afzalimdad9
+
+
+# =============================================================================
+# Video Processing Pipeline
+# =============================================================================
+
+# Core pipeline (orchestrator, downloader, transcoder, manifests, sprites)
+/packages/pipeline/                                     @afzalimdad9
+
+# Whisper speech-to-text (caption generator, audio converter, models)
+/packages/pipeline/src/whisper/                         @afzalimdad9
+
+# AI vision (frame extraction, VLM client, description generation)
+/packages/pipeline/src/vision/                          @afzalimdad9
+
+
+# =============================================================================
+# Frontend
+# =============================================================================
+
+# React application — pages, components, styles
+/packages/web/                                          @afzalimdad9
+
+# Video player and streaming UI
+/packages/web/src/components/VideoPlayer/               @afzalimdad9
+
+# Video upload (drag-and-drop, URL submit, file queue)
+/packages/web/src/components/Upload/                    @afzalimdad9
+
+
+# =============================================================================
+# Infrastructure — Docker, Deployment, CI/CD
+# =============================================================================
+
+# Docker Compose, Dockerfiles, and Nginx configuration
+/docker/                                                @afzalimdad9
+
+# Shell scripts (dev, setup, deployment)
+/scripts/                                               @afzalimdad9
+
+# GitHub Actions workflows
+/.github/workflows/                                     @afzalimdad9
+
+# Steering configuration (deploy, pipeline)
+/steering/                                              @afzalimdad9
+
+
+# =============================================================================
+# Infrastructure-as-Code — Terraform & Cloud
+# =============================================================================
+
+# Terraform production environment
+/terraform/environments/production/                     @afzalimdad9
+
+# Terraform staging environment
+/terraform/environments/staging/                        @afzalimdad9
+
+# Terraform reusable modules
+/terraform/modules/                                     @afzalimdad9
+
+# Terraform root configuration
+/terraform/versions.tf                                  @afzalimdad9
+
+
+# =============================================================================
+# Documentation
+# =============================================================================
+
+# Root documentation files
+/README.md                                              @afzalimdad9
+/CONTRIBUTING.md                                        @afzalimdad9
+/CHANGELOG.md                                           @afzalimdad9
+/AGENTS.md                                              @afzalimdad9
+/LICENSE                                                @afzalimdad9
+
+# Developer guides and deployment docs
+/docs/                                                  @afzalimdad9
+
+# Environment configuration
+/.env.example                                           @afzalimdad9
+
+
+# =============================================================================
+# AI Agent Skills
+# =============================================================================
+
+/skills/                                                @afzalimdad9
+
+
+# =============================================================================
+# Security-Sensitive Paths — Require explicit approval
+# =============================================================================
+
+# Dockerfiles (affect production image)
+/docker/Dockerfile.*                                    @afzalimdad9
+
+# Deployment scripts (can affect production)
+/scripts/deploy/                                        @afzalimdad9
+
+# Terraform (provisions cloud resources)
+/terraform/                                             @afzalimdad9
+
+# CI/CD pipeline (controls deployment process)
+/.github/workflows/deploy.yml                           @afzalimdad9
